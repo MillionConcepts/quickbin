@@ -12,7 +12,6 @@ enum HistOp {
     OP_MEDIAN = 4,
     OP_MIN = 5,
     OP_MAX = 6,
-    OP_MEDIAN2 = 7
 };
 
 typedef struct Iterface {
@@ -113,9 +112,9 @@ static inline void hist_index(Iterface *iter, Histspace *space, long *indices) {
     indices[1] = iy;
 }
 
-static int check_arrs(PyArrayObject *arrays[], int n_arrays) {
+static char check_arrs(PyArrayObject *arrays[], char n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
-    for (int i = 0; i < n_arrays; i++) {
+    for (char i = 0; i < n_arrays; i++) {
         if (arrays[i] == NULL) {
             PyErr_SetString(PyExc_TypeError, "Couldn't parse an array");
             return 0;
@@ -152,11 +151,11 @@ PyObject_CallFunctionObjArgs(unique, arr, NULL);
 
 static void np_to_arr(PyObject *np_obj, void *c_array) {
     PyArray_AsCArray(
-            &np_obj,
-            c_array,
-            PyArray_DIMS((PyArrayObject *) np_obj),
-            PyArray_NDIM((PyArrayObject *) np_obj),
-            PyArray_DescrFromType(PyArray_TYPE((PyArrayObject *) np_obj))
+        &np_obj,
+        c_array,
+        PyArray_DIMS((PyArrayObject *) np_obj),
+        PyArray_NDIM((PyArrayObject *) np_obj),
+        PyArray_DescrFromType(PyArray_TYPE((PyArrayObject *) np_obj))
     );
 }
 
@@ -165,6 +164,12 @@ PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
 )
 
+static void decrement_array_references(PyArrayObject *arrays[3], char n_arrs) {
+    for (char a = 0; a < n_arrs; a++) {
+        Py_DECREF(arrays[a]);
+    }
+    Py_DECREF(arrays);
+}
 
 static PyArrayObject *init_ndarray2d(npy_intp *dims, npy_intp dtype, npy_intp fill) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
@@ -226,10 +231,7 @@ static PyObject* binned_sum(
     } while (iter.iternext(iter.iter));
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
-    PyObject *countarr = PyArray_Copy(
-        (PyArrayObject *)
-        PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count)
-    );
+    PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
     return countarr;
 }
 
@@ -272,14 +274,8 @@ static PyObject* binned_mean(
     free(count);
     free(val);
     NpyIter_Deallocate(iter.iter);
-    // this copy prevents the memory from being deallocated when we leave
-    // function scope in C.
-    // but can it ever actually be deallocated by Python?
     npy_intp outlen[1] = {nx * ny};
-    PyObject *meanarr = PyArray_Copy(
-        (PyArrayObject *)
-        PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean)
-    );
+    PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
     return meanarr;
 }
 
@@ -333,10 +329,7 @@ static PyObject* binned_std(
     free(sqr);
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
-    PyObject *stdarr = PyArray_Copy(
-        (PyArrayObject *)
-        PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std)
-    );
+    PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
     return stdarr;
 }
 
@@ -367,18 +360,15 @@ static PyObject* binned_min(
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
+    NpyIter_Deallocate(iter.iter);
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MAX;
     //  just have a special case up top
     for (long i = 0; i < nx * ny; i++) {
         if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
     }
-    // see notes on this copy operation above
     npy_intp outlen[1] = {nx * ny};
-    PyObject *minarr = PyArray_Copy(
-        (PyArrayObject *)
-        PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min)
-    );
+    PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
     return minarr;
 }
 
@@ -409,6 +399,7 @@ static PyObject* binned_max(
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
+    NpyIter_Deallocate(iter.iter);
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MIN
     for (long i = 0; i < nx * ny; i++) {
@@ -416,10 +407,7 @@ static PyObject* binned_max(
     }
     // see notes on this copy operation above
     npy_intp outlen[1] = {nx * ny};
-    PyObject *maxarr = PyArray_Copy(
-        (PyArrayObject *)
-        PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max)
-    );
+    PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
     return maxarr;
 }
 
@@ -431,6 +419,7 @@ static PyObject* binned_median(
     long nx,
     long ny
 ) {
+    // TODO: pretty sure a lot of unnecessary copies are happening here
     PyObject *xdig_obj, *ydig_obj, *xdig_sort_obj,
         *xdig_uniq_obj, *ydig_uniq_obj,
         *numpy, *digitize, *unique,
@@ -449,10 +438,12 @@ static PyObject* binned_median(
     long xshape[1] = {nx};
     long yshape[1] = {ny};
     long arrsize = PyArray_SIZE(arrs[0]);
-    xbin_obj = arr_to_np_double(xbins, xshape);
-    ybin_obj = arr_to_np_double(ybins, yshape);
+    xbin_obj = PyArray_SimpleNewFromData(1, xshape, NPY_DOUBLE, xbins);
+    ybin_obj = PyArray_SimpleNewFromData(1, yshape, NPY_DOUBLE, ybins);
     xdig_obj = np_digitize(arrs[0], xbin_obj);
     ydig_obj = np_digitize(arrs[1], ybin_obj);
+    Py_DECREF(xbin_obj);
+    Py_DECREF(ybin_obj);
     long *xdig, *ydig, *xdig_sort;
     xdig_sort_obj = np_argsort(xdig_obj);
     np_to_arr(xdig_sort_obj, &xdig_sort);
@@ -475,6 +466,7 @@ static PyObject* binned_median(
     Py_DECREF(numpy);
     double *vals;
     np_to_arr((PyObject *) arrs[2], &vals);
+    Py_DECREF(arrs[2]);
     long x_sort_ix = 0;
     double (*medians)[nx * ny] = malloc(sizeof *medians);
     for (long mi = 0; mi < nx * ny; mi++) {
@@ -483,6 +475,7 @@ static PyObject* binned_median(
     long elcount = 0;
     double* xvals;
     np_to_arr((PyObject *) arrs[0], &xvals);
+    Py_DECREF(arrs[0]);
     for (long xix = 0; xix < nx_uniq; xix++) {
         long xbin = xdig_uniq[xix] - 1;
         long (*outer_indices)[arrsize] = malloc(sizeof *outer_indices);
@@ -533,8 +526,10 @@ static PyObject* binned_median(
     }
     long shape[1] = {nx * ny};
     PyObject *medarr = arr_to_np_double(medians, shape);
+    free(medians);
     return medarr;
 }
+
 
 static PyObject* genhist(PyObject *self, PyObject *args) {
     long nx, ny;
@@ -543,8 +538,8 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     PyObject *x_arg, *y_arg, *val_arg;
     if (
         !PyArg_ParseTuple(args, "OOOddddlli",
-              &x_arg, &y_arg, &val_arg, &xmin, &xmax,
-              &ymin, &ymax, &nx, &ny, &op)
+        &x_arg, &y_arg, &val_arg, &xmin, &xmax,
+        &ymin, &ymax, &nx, &ny, &op)
     ) {
         PyErr_SetString(PyExc_TypeError, "Bad argument");
         return NULL;
@@ -559,12 +554,13 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     PyArrayObject *arrays[3];
     arrays[0] = (PyArrayObject *) PyArray_FROM_O(x_arg);
     arrays[1] = (PyArrayObject *) PyArray_FROM_O(y_arg);
-    int ok;
-    if (op != OP_COUNT) {
+    char ok, n_arrs;
+    if (op == OP_COUNT) n_arrs = 2; else n_arrs = 3;
+    if (n_arrs == 3) {
         arrays[2] = (PyArrayObject *) PyArray_FROM_O(val_arg);
-        ok = check_arrs(arrays, 3);
+        ok = check_arrs(arrays, n_arrs);
     }
-    else ok = check_arrs(arrays, 2);
+    else ok = check_arrs(arrays, n_arrs);
     if (ok == 0) {
         Py_DECREF(arrays);
         return NULL;
@@ -603,10 +599,9 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
         PyErr_SetString(PyExc_RuntimeError, "unclassified error in binning");
         return NULL;
     }
-    Py_DECREF(arrays);
+    decrement_array_references(arrays, n_arrs);
     return binned_arr;
 }
-
 
 static PyMethodDef QuickbinMethods[] = {
     {
