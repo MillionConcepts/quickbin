@@ -1,0 +1,8 @@
+name: quickbin
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.11
+  - cmake>=3.26
+  - numpy
+  - setuptools

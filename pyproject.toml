@@ -1,0 +1,15 @@
+[project]
+name        = "quickbin"
+version     = "0.0.1a0"
+
+requires-python = ">=3.11"
+dependencies = [
+    "numpy",
+]
+
+[build-system]
+requires = ["setuptools", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["quickbin"]
