@@ -12,6 +12,7 @@ enum HistOp {
     OP_MEDIAN = 4,
     OP_MIN = 5,
     OP_MAX = 6,
+    OP_MEDIAN2 = 7
 };
 
 typedef struct Iterface {
@@ -70,7 +71,6 @@ typedef struct Histspace {
     double ymax;
     long nx;
     long ny;
-    npy_intp *outlen;
 } Histspace;
 
 static Histspace make_histspace(
@@ -132,24 +132,44 @@ static int check_arrs(PyArrayObject *arrays[], int n_arrays) {
     return 1;
 }
 
+int longcomp(const void* a, const void* b) {
+    long *aval = (long *) a, *bval = (long *) b;
+    if (*aval > *bval) return 1;
+    if (*bval > *aval) return -1;
+    return 0;
+}
+
+#define np_digitize(arr1, arr2) \
+PyObject_CallFunctionObjArgs( \
+    digitize, (PyObject *) arr1, (PyObject *) arr2, Py_False, NULL \
+)
+
+#define np_argsort(arr) \
+PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT);   \
+
+#define np_unique(arr) \
+PyObject_CallFunctionObjArgs(unique, arr, NULL);
+
+static void np_to_arr(PyObject *np_obj, void *c_array) {
+    PyArray_AsCArray(
+            &np_obj,
+            c_array,
+            PyArray_DIMS((PyArrayObject *) np_obj),
+            PyArray_NDIM((PyArrayObject *) np_obj),
+            PyArray_DescrFromType(PyArray_TYPE((PyArrayObject *) np_obj))
+    );
+}
+
+#define arr_to_np_double(arr, shape) \
+PyArray_Copy( \
+    (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
+)
+
+
 static PyArrayObject *init_ndarray2d(npy_intp *dims, npy_intp dtype, npy_intp fill) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
     PyArray_FILLWBYTE(arr2d, fill);
     return arr2d;
-}
-
-static void fill_double(double *arr, long size, double fill_value) {
-    for (long i = 0; i < size; i++) {
-        arr[i] = fill_value;
-    }
-}
-
-static void to_nan(double *arr, long size, double nanval) {
-    for (long i = 0; i < size; i++) {
-        if (arr[i] == nanval) {
-            arr[i] = NAN;
-        }
-    }
 }
 
 static PyObject* binned_count(
@@ -249,6 +269,8 @@ static PyObject* binned_mean(
             (*mean)[i] = (*val)[i] / (*count)[i];
         }
     }
+    free(count);
+    free(val);
     NpyIter_Deallocate(iter.iter);
     // this copy prevents the memory from being deallocated when we leave
     // function scope in C.
@@ -298,7 +320,7 @@ static PyObject* binned_std(
     double (*std)[nx * ny] = malloc(sizeof *std);
     for (long i = 0; i < nx * ny; i++) {
         if ((*count)[i] == 0) {
-            (*std)[i] = 0;
+            (*std)[i] = NAN;
         } else {
             (*std)[i] = sqrt(
                 ((*sqr)[i] * (*count)[i] - ((*val)[i] * (*val)[i]))
@@ -306,6 +328,9 @@ static PyObject* binned_std(
             );
         }
     }
+    free(count);
+    free(val);
+    free(sqr);
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *stdarr = PyArray_Copy(
@@ -326,23 +351,28 @@ static PyObject* binned_min(
     Iterface iter = make_iterface(arrs, 3);
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
-    double min[nx * ny];
-    fill_double(min, nx * ny, DBL_MAX);
+    double (*min)[nx * ny] = malloc(sizeof *min);
+    for (long i = 0; i < nx * ny; i++) {
+        (*min)[i] = DBL_MAX;
+    }
     do {
         npy_intp size = *iter.size;
         while (size--) {
             long indices[2];
             hist_index(&iter, &space, indices);
             double tw = *(double *) iter.data[2];
-            if (min[indices[1] + ny * indices[0]] > tw) {
-                min[indices[1] + ny * indices[0]] = tw;
+            if ((*min)[indices[1] + ny * indices[0]] > tw) {
+                (*min)[indices[1] + ny * indices[0]] = tw;
             }
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
     // TODO: this will produce NaNs in the perverse case where
-    //  an array is filled entirely with DBL_MAX
-    to_nan(min, ny * nx, DBL_MAX);
+    //  an array is filled entirely with DBL_MAX;
+    //  just have a special case up top
+    for (long i = 0; i < nx * ny; i++) {
+        if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
+    }
     // see notes on this copy operation above
     npy_intp outlen[1] = {nx * ny};
     PyObject *minarr = PyArray_Copy(
@@ -363,23 +393,27 @@ static PyObject* binned_max(
     Iterface iter = make_iterface(arrs, 3);
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
-    double max[nx * ny];
-    fill_double(max, nx * ny, DBL_MIN);
+    double (*max)[nx * ny] = malloc(sizeof *max);
+    for (long i = 0; i < nx * ny; i++) {
+        (*max)[i] = DBL_MIN;
+    }
     do {
         npy_intp size = *iter.size;
         while (size--) {
             long indices[2];
             hist_index(&iter, &space, indices);
             double tw = *(double *) iter.data[2];
-            if (max[indices[1] + ny * indices[0]] < tw) {
-                max[indices[1] + ny * indices[0]] = tw;
+            if ((*max)[indices[1] + ny * indices[0]] < tw) {
+                (*max)[indices[1] + ny * indices[0]] = tw;
             }
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MIN
-    to_nan(max, ny * nx, DBL_MIN);
+    for (long i = 0; i < nx * ny; i++) {
+        if ((*max)[i] == DBL_MIN) (*max)[i] = NAN;
+    }
     // see notes on this copy operation above
     npy_intp outlen[1] = {nx * ny};
     PyObject *maxarr = PyArray_Copy(
@@ -388,39 +422,6 @@ static PyObject* binned_max(
     );
     return maxarr;
 }
-
-int longcomp(const void* a, const void* b) {
-    long *aval = (long *) a, *bval = (long *) b;
-    if (*aval > *bval) return 1;
-    if (*bval > *aval) return -1;
-    return 0;
-}
-
-#define np_digitize(arr1, arr2) \
-PyObject_CallFunctionObjArgs( \
-    digitize, (PyObject *) arr1, (PyObject *) arr2, Py_False, NULL \
-)
-
-#define np_argsort(arr) \
-PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT);   \
-
-#define np_unique(arr) \
-PyObject_CallFunctionObjArgs(unique, arr, NULL);
-
-static void np_to_arr(PyObject *np_obj, void *c_array) {
-    PyArray_AsCArray(
-        &np_obj,
-        c_array,
-        PyArray_DIMS((PyArrayObject *) np_obj),
-        PyArray_NDIM((PyArrayObject *) np_obj),
-        PyArray_DescrFromType(PyArray_TYPE((PyArrayObject *) np_obj))
-    );
-}
-
-#define arr_to_np(arr, shape) \
-PyArray_Copy( \
-    (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
-)
 
 
 static PyObject* binned_median(
@@ -448,8 +449,8 @@ static PyObject* binned_median(
     long xshape[1] = {nx};
     long yshape[1] = {ny};
     long arrsize = PyArray_SIZE(arrs[0]);
-    xbin_obj = arr_to_np(xbins, xshape);
-    ybin_obj = arr_to_np(ybins, yshape);
+    xbin_obj = arr_to_np_double(xbins, xshape);
+    ybin_obj = arr_to_np_double(ybins, yshape);
     xdig_obj = np_digitize(arrs[0], xbin_obj);
     ydig_obj = np_digitize(arrs[1], ybin_obj);
     long *xdig, *ydig, *xdig_sort;
@@ -531,7 +532,7 @@ static PyObject* binned_median(
         free(outer_indices);
     }
     long shape[1] = {nx * ny};
-    PyObject *medarr = arr_to_np(medians, shape);
+    PyObject *medarr = arr_to_np_double(medians, shape);
     return medarr;
 }
 
