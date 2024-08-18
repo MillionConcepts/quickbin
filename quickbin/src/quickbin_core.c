@@ -3,6 +3,13 @@
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
 #include <float.h>
+#include <signal.h>
+
+static void signalself(int sig) {
+    printf("interrupting self with signal %i\n", sig);
+    kill(getpid(), sig);
+    printf("continuing past interrupt\n");
+}
 
 enum HistOp {
     OP_COUNT = 0,
@@ -112,6 +119,34 @@ static inline void hist_index(Iterface *iter, Histspace *space, long *indices) {
     indices[1] = iy;
 }
 
+#define START_VARARGS \
+va_list args; \
+va_start(args, n); \
+for (int i = 0; i < n; i++) {
+
+#define END_VARARGS \
+}                   \
+va_end(args);
+
+static void free_all(int n, ...) {
+    START_VARARGS
+    free(va_arg(args, void*));
+    END_VARARGS
+}
+
+static void decref_all(int n, ...)
+{
+    START_VARARGS
+    Py_DECREF(va_arg(args, PyObject*));
+    END_VARARGS
+}
+
+static void decref_arrays(int n_arrays, PyArrayObject** arrays) {
+    for (int i = 0; i < n_arrays; i++) {
+        Py_DECREF(arrays[i]);
+    }
+}
+
 static char check_arrs(PyArrayObject *arrays[], char n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
     for (char i = 0; i < n_arrays; i++) {
@@ -138,13 +173,18 @@ int longcomp(const void* a, const void* b) {
     return 0;
 }
 
+#define ASSIGN_COUNTVAL \
+(*count)[indices[1] + ny * indices[0]] += 1; \
+(*val)[indices[1] + ny * indices[0]] += tw;
+
+
 #define np_digitize(arr1, arr2) \
 PyObject_CallFunctionObjArgs( \
-    digitize, (PyObject *) arr1, (PyObject *) arr2, Py_False, NULL \
+    digitize, arr1, arr2, Py_False, NULL \
 )
 
 #define np_argsort(arr) \
-PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT);   \
+PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT)   \
 
 #define np_unique(arr) \
 PyObject_CallFunctionObjArgs(unique, arr, NULL);
@@ -163,13 +203,6 @@ static void np_to_arr(PyObject *np_obj, void *c_array) {
 PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
 )
-
-static void decrement_array_references(PyArrayObject *arrays[3], char n_arrs) {
-    for (char a = 0; a < n_arrs; a++) {
-        Py_DECREF(arrays[a]);
-    }
-    Py_DECREF(arrays);
-}
 
 static PyArrayObject *init_ndarray2d(npy_intp *dims, npy_intp dtype, npy_intp fill) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
@@ -260,8 +293,7 @@ static PyObject* binned_mean(
             long indices[2];
             hist_index(&iter, &space, indices);
                 double tw = *(double *) iter.data[2];
-                (*count)[indices[1] + ny * indices[0]] += 1;
-                (*val)[indices[1] + ny * indices[0]] += tw;
+                ASSIGN_COUNTVAL
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
@@ -272,19 +304,13 @@ static PyObject* binned_mean(
             (*mean)[i] = (*val)[i] / (*count)[i];
         }
     }
-    free(count);
-    free(val);
+
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
-    free(mean);
+    free_all(3, count, val, mean);
     return meanarr;
 }
-
-#define ASSIGN_COUNTVAL \
-(*count)[indices[1] + ny * indices[0]] += 1; \
-(*val)[indices[1] + ny * indices[0]] += tw;
-
 
 static PyObject* binned_std(
     PyArrayObject *arrs[3],
@@ -326,12 +352,10 @@ static PyObject* binned_std(
             );
         }
     }
-    free(count);
-    free(val);
-    free(sqr);
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
+    free_all(3, count, val, sqr);
     free(std);
     return stdarr;
 }
@@ -416,6 +440,9 @@ static PyObject* binned_max(
 }
 
 
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "MemoryLeak"
 static PyObject* binned_median(
     PyArrayObject *arrs[3],
     double xbounds[2],
@@ -423,7 +450,7 @@ static PyObject* binned_median(
     long nx,
     long ny
 ) {
-    // TODO: pretty sure a lot of unnecessary copies are happening here
+    // TODO: there may be unnecessary copies happening here
     PyObject *xdig_obj, *ydig_obj, *xdig_sort_obj,
         *xdig_uniq_obj, *ydig_uniq_obj,
         *numpy, *digitize, *unique,
@@ -444,33 +471,31 @@ static PyObject* binned_median(
     long arrsize = PyArray_SIZE(arrs[0]);
     xbin_obj = PyArray_SimpleNewFromData(1, xshape, NPY_DOUBLE, xbins);
     ybin_obj = PyArray_SimpleNewFromData(1, yshape, NPY_DOUBLE, ybins);
-    xdig_obj = np_digitize(arrs[0], xbin_obj);
-    ydig_obj = np_digitize(arrs[1], ybin_obj);
-    Py_DECREF(xbin_obj);
-    Py_DECREF(ybin_obj);
-    long *xdig, *ydig, *xdig_sort;
+    xdig_obj = np_digitize((PyObject*) arrs[0], xbin_obj);
+    ydig_obj = np_digitize((PyObject *) arrs[1], ybin_obj);
+    if ((xdig_obj == NULL) | (ydig_obj == NULL)) {
+        PyErr_SetString(PyExc_RuntimeError, "digitize op failed");
+        return NULL;
+    }
+    decref_all(2, xbin_obj, ybin_obj);
+    long *xdig, *ydig, *xdig_sort, *xdig_uniq, *ydig_uniq;
     xdig_sort_obj = np_argsort(xdig_obj);
-    np_to_arr(xdig_sort_obj, &xdig_sort);
-    Py_SET_REFCNT(xdig_sort_obj, 0);
+    if (xdig_sort_obj == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "argsort failed");
+        return NULL;
+    }
     np_to_arr(xdig_obj, &xdig);
+    np_to_arr(xdig_sort_obj, &xdig_sort);
     np_to_arr(ydig_obj, &ydig);
-    long *xdig_uniq, *ydig_uniq;
     xdig_uniq_obj = np_unique(xdig_obj);
-    Py_DECREF(xdig_obj);
     long nx_uniq = PyArray_SIZE((PyArrayObject *) xdig_uniq_obj);
     np_to_arr(xdig_uniq_obj, &xdig_uniq);
-    Py_DECREF(xdig_uniq_obj);
     ydig_uniq_obj = np_unique(ydig_obj);
-    Py_DECREF(ydig_obj);
     long ny_uniq = PyArray_SIZE((PyArrayObject *) ydig_uniq_obj);
     np_to_arr(ydig_uniq_obj, &ydig_uniq);
-    Py_DECREF(ydig_uniq_obj);
-    Py_DECREF(unique);
-    Py_DECREF(digitize);
-    Py_DECREF(numpy);
+    decref_all(5, xdig_uniq_obj, ydig_uniq_obj, unique, digitize, numpy);
     double *vals;
     np_to_arr((PyObject *) arrs[2], &vals);
-    Py_DECREF(arrs[2]);
     long x_sort_ix = 0;
     double (*medians)[nx * ny] = malloc(sizeof *medians);
     for (long mi = 0; mi < nx * ny; mi++) {
@@ -479,7 +504,6 @@ static PyObject* binned_median(
     long elcount = 0;
     double* xvals;
     np_to_arr((PyObject *) arrs[0], &xvals);
-    Py_DECREF(arrs[0]);
     for (long xix = 0; xix < nx_uniq; xix++) {
         long xbin = xdig_uniq[xix] - 1;
         long (*outer_indices)[arrsize] = malloc(sizeof *outer_indices);
@@ -524,18 +548,15 @@ static PyObject* binned_median(
             (*medians)[ybin + space.ny * xbin] = median;
             free(binvals);
         }
-        free(xy_matchix);
-        free(xy_matchix_count);
-        free(outer_indices);
+        free_all(3, xy_matchix, xy_matchix_count, outer_indices);
     }
     long shape[1] = {nx * ny};
     PyObject *medarr = arr_to_np_double(medians, shape);
-    free(xdig_sort);
-    free(xdig);
-    free(ydig);
-    free(medians);
+    free_all(3, xdig_sort, xdig, ydig);
+    decref_all(4, xdig_obj, ydig_obj, arrs[2], arrs[0]);  // np_to_arr steals references to arrs[2] and arrs[0]
     return medarr;
 }
+#pragma clang diagnostic pop
 
 
 static PyObject* genhist(PyObject *self, PyObject *args) {
@@ -569,7 +590,6 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     }
     else ok = check_arrs(arrays, n_arrs);
     if (ok == 0) {
-        Py_DECREF(arrays);
         return NULL;
     }
     PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long);
@@ -602,11 +622,8 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
     PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny);
-    if (binned_arr == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, "unclassified error in binning");
-        return NULL;
-    }
-    decrement_array_references(arrays, n_arrs);
+    if (binned_arr == NULL) return NULL;
+    decref_arrays(n_arrs, arrays);
     return binned_arr;
 }
 
