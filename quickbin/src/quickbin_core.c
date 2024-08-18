@@ -232,6 +232,7 @@ static PyObject* binned_sum(
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
+    free(count);
     return countarr;
 }
 
@@ -276,6 +277,7 @@ static PyObject* binned_mean(
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
+    free(mean);
     return meanarr;
 }
 
@@ -330,6 +332,7 @@ static PyObject* binned_std(
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
+    free(std);
     return stdarr;
 }
 
@@ -369,6 +372,7 @@ static PyObject* binned_min(
     }
     npy_intp outlen[1] = {nx * ny};
     PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
+    free(min);
     return minarr;
 }
 
@@ -405,9 +409,9 @@ static PyObject* binned_max(
     for (long i = 0; i < nx * ny; i++) {
         if ((*max)[i] == DBL_MIN) (*max)[i] = NAN;
     }
-    // see notes on this copy operation above
     npy_intp outlen[1] = {nx * ny};
     PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
+    free(max);
     return maxarr;
 }
 
@@ -447,7 +451,7 @@ static PyObject* binned_median(
     long *xdig, *ydig, *xdig_sort;
     xdig_sort_obj = np_argsort(xdig_obj);
     np_to_arr(xdig_sort_obj, &xdig_sort);
-    Py_DECREF(xdig_sort_obj);
+    Py_SET_REFCNT(xdig_sort_obj, 0);
     np_to_arr(xdig_obj, &xdig);
     np_to_arr(ydig_obj, &ydig);
     long *xdig_uniq, *ydig_uniq;
@@ -526,6 +530,9 @@ static PyObject* binned_median(
     }
     long shape[1] = {nx * ny};
     PyObject *medarr = arr_to_np_double(medians, shape);
+    free(xdig_sort);
+    free(xdig);
+    free(ydig);
     free(medians);
     return medarr;
 }
