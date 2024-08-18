@@ -66,4 +66,4 @@ def bin2d(
             f"Unknown operation {op}. "
             f"Valid operations are {', '.join(OPS.keys())}."
         )
-    return genhist(*arrs, *ranges, *n_bins, OPS[op]).reshape(n_bins).T
+    return genhist(*arrs, *ranges, *n_bins, OPS[op]).reshape(n_bins)
