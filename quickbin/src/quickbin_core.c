@@ -265,7 +265,6 @@ static PyObject* binned_sum(
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
-    free(count);
     return countarr;
 }
 
@@ -308,7 +307,7 @@ static PyObject* binned_mean(
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
-    free_all(3, count, val, mean);
+    free_all(2, count, val);
     return meanarr;
 }
 
@@ -356,7 +355,6 @@ static PyObject* binned_std(
     npy_intp outlen[1] = {nx * ny};
     PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
     free_all(3, count, val, sqr);
-    free(std);
     return stdarr;
 }
 
@@ -396,7 +394,6 @@ static PyObject* binned_min(
     }
     npy_intp outlen[1] = {nx * ny};
     PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
-    free(min);
     return minarr;
 }
 
@@ -435,7 +432,6 @@ static PyObject* binned_max(
     }
     npy_intp outlen[1] = {nx * ny};
     PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
-    free(max);
     return maxarr;
 }
 
