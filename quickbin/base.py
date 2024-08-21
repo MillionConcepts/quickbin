@@ -1,9 +1,12 @@
 from numbers import Integral, Number
+import signal
 from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
 
 from quickbin._quickbin_core import genhist
+
+INTERRUPTS_RECEIVED = []
 
 # TODO: find a way to share an object between this and the C module
 OpName = Literal["count", "sum", "mean", "std", "median", "min", "max"]
@@ -66,4 +69,22 @@ def bin2d(
             f"Unknown operation {op}. "
             f"Valid operations are {', '.join(OPS.keys())}."
         )
-    return genhist(*arrs, *ranges, *n_bins, OPS[op]).reshape(n_bins)
+
+    def make_interrupter():
+        base_interrupter = signal.getsignal(signal.SIGINT)
+        has_interrupted = 0
+
+        def interrupter(signalnum, frame):
+            INTERRUPTS_RECEIVED.append(signal.SIGINT)
+            raise KeyboardInterrupt
+
+        return interrupter
+
+    try:
+        signal.signal(signal.SIGINT, make_interrupter())
+        return genhist(*arrs, *ranges, *n_bins, OPS[op]).reshape(n_bins)
+    except Exception as ex:
+        # if len(INTERRUPTS_RECEIVED) > 0:
+        #     raise KeyboardInterrupt
+        raise ex
+

@@ -471,23 +471,21 @@ static PyObject* binned_median(
     xdig_obj = np_digitize((PyObject*) arrs[0], xbin_obj);
     ydig_obj = np_digitize((PyObject *) arrs[1], ybin_obj);
     if ((xdig_obj == NULL) | (ydig_obj == NULL)) {
-        PyErr_SetString(PyExc_RuntimeError, "digitize op failed");
         return NULL;
     }
     decref_all(2, xbin_obj, ybin_obj);
     long *xdig, *ydig, *xdig_sort, *xdig_uniq, *ydig_uniq;
     xdig_sort_obj = np_argsort(xdig_obj);
-    if (xdig_sort_obj == NULL) {
-        PyErr_SetString(PyExc_RuntimeError, "argsort failed");
-        return NULL;
-    }
+    if (xdig_sort_obj == NULL) return NULL;
     np_to_arr(xdig_obj, &xdig);
     np_to_arr(xdig_sort_obj, &xdig_sort);
     np_to_arr(ydig_obj, &ydig);
     xdig_uniq_obj = np_unique(xdig_obj);
+    ydig_uniq_obj = np_unique(ydig_obj);
+    if ((xdig_uniq_obj == NULL) | (ydig_uniq_obj == NULL)) return NULL;
+    // int sig = PyErr_CheckSignals();
     long nx_uniq = PyArray_SIZE((PyArrayObject *) xdig_uniq_obj);
     np_to_arr(xdig_uniq_obj, &xdig_uniq);
-    ydig_uniq_obj = np_unique(ydig_obj);
     long ny_uniq = PyArray_SIZE((PyArrayObject *) ydig_uniq_obj);
     np_to_arr(ydig_uniq_obj, &ydig_uniq);
     decref_all(5, xdig_uniq_obj, ydig_uniq_obj, unique, digitize, numpy);
@@ -626,8 +624,16 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
     PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny);
-    if (binned_arr == NULL) return NULL;
     decref_arrays(n_arrs, arrays);
+    if (binned_arr == NULL) {
+        PyObject *err = PyErr_Occurred();
+        if (err == NULL) {
+            PyErr_SetString(
+                PyExc_RuntimeError, "Unclassified error in binning"
+            );
+        }
+        return NULL;
+    }
     return binned_arr;
 }
 
