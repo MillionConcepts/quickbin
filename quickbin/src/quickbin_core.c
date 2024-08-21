@@ -147,9 +147,9 @@ static void decref_arrays(int n_arrays, PyArrayObject** arrays) {
     }
 }
 
-static char check_arrs(PyArrayObject *arrays[], char n_arrays) {
+static char check_arrs(PyArrayObject *arrays[], long n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
-    for (char i = 0; i < n_arrays; i++) {
+    for (long i = 0; i < n_arrays; i++) {
         if (arrays[i] == NULL) {
             PyErr_SetString(PyExc_TypeError, "Couldn't parse an array");
             return 0;
@@ -462,6 +462,7 @@ static PyObject* binned_median(
     for (long i = 0; i < ny; i++) {
         ybins[i] = space.ymin + (double) i / space.yscl;
     }
+    // return NULL;
     long xshape[1] = {nx};
     long yshape[1] = {ny};
     long arrsize = PyArray_SIZE(arrs[0]);
@@ -503,32 +504,38 @@ static PyObject* binned_median(
     for (long xix = 0; xix < nx_uniq; xix++) {
         long xbin = xdig_uniq[xix] - 1;
         long (*outer_indices)[arrsize] = malloc(sizeof *outer_indices);
+        for (long i = 0; i < arrsize; i++) {
+            (*outer_indices)[i] = 0;
+        } 
         long outer_label_size = 0;
         for(;;) {
             (*outer_indices)[outer_label_size] = xdig_sort[x_sort_ix];
             outer_label_size += 1;
-            x_sort_ix += 1;
             if (x_sort_ix >= arrsize) break;
-            if (xdig[xdig_sort[x_sort_ix]] != xbin + 1) break;
+            x_sort_ix += 1;
+            if (xdig[xdig_sort[x_sort_ix]] != xbin) break;
         }
-        long (*xy_matchix)[ny_uniq][outer_label_size]
+        if (outer_label_size == 0) continue;
+        long (*xy_matchix)[ny][outer_label_size]
             = malloc(sizeof *xy_matchix);
-        long (*xy_matchix_count)[ny_uniq]
+        long (*xy_matchix_count)[ny]
             = malloc(sizeof *xy_matchix_count);
-        for (long i = 0; i < ny_uniq; i++) {
+        for (long i = 0; i < ny; i++) {
             (*xy_matchix_count)[i] = 0;
         }
+        // TODO: this can be made more efficient with a reverse mapping
+        //  (just like an argsort) from indices of unique y bins to values of unique y bins
         for (long j = 0; j < outer_label_size; j++) {
             long ybin = ydig[(*outer_indices)[j]] - 1;
             (*xy_matchix)[ybin][(*xy_matchix_count)[ybin]] = (*outer_indices)[j];
             (*xy_matchix_count)[ybin] += 1;
         }
-        for (long yix = 0; yix < ny_uniq; yix++) {
-            long ybin = ydig_uniq[yix] - 1;
+        for (long ybin = 0; ybin < ny; ybin++) {
             long binsize = (*xy_matchix_count)[ybin];
             if (binsize == 0) continue;
             double (*binvals)[binsize] = malloc(sizeof *binvals);
             for (long ix_ix = 0; ix_ix < binsize; ix_ix++) {
+                long ri = (*xy_matchix)[ybin][ix_ix];
                 (*binvals)[ix_ix] = vals[(*xy_matchix)[ybin][ix_ix]];
                 elcount += 1;
             }
@@ -578,7 +585,8 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     PyArrayObject *arrays[3];
     arrays[0] = (PyArrayObject *) PyArray_FROM_O(x_arg);
     arrays[1] = (PyArrayObject *) PyArray_FROM_O(y_arg);
-    char ok, n_arrs;
+    char ok;
+    long n_arrs;
     if (op == OP_COUNT) n_arrs = 2; else n_arrs = 3;
     if (n_arrs == 3) {
         arrays[2] = (PyArrayObject *) PyArray_FROM_O(val_arg);
