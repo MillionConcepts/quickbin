@@ -450,8 +450,8 @@ static PyObject* binned_median(
     long ny
 ) {
     // TODO: there may be unnecessary copies happening here
-    PyObject *xdig_obj, *ydig_obj, *xdig_sort_obj,
-        *xdig_uniq_obj, *ydig_uniq_obj, *numpy, *unique;
+    PyObject *xdig_obj, *xdig_sort_obj,
+        *xdig_uniq_obj, *numpy, *unique;
     numpy = PyImport_ImportModule("numpy");
     unique = PyObject_GetAttrString(numpy, "unique");
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
@@ -472,19 +472,17 @@ static PyObject* binned_median(
     }
     NpyIter_Deallocate(iter.iter);
     npy_intp arrshape[1] = {arrsize};
+    // TODO: this is probably an unnecessary copy
     xdig_obj = arr_to_np_long(xdig, arrshape);
-    ydig_obj = arr_to_np_long(ydig, arrshape);
-    long *xdig_sort, *xdig_uniq, *ydig_uniq;
+    long *xdig_sort, *xdig_uniq;
     xdig_sort_obj = np_argsort(xdig_obj);
     if (xdig_sort_obj == NULL) return NULL;
     np_to_arr(xdig_sort_obj, &xdig_sort);
     xdig_uniq_obj = np_unique(xdig_obj);
-    ydig_uniq_obj = np_unique(ydig_obj);
-    if ((xdig_uniq_obj == NULL) | (ydig_uniq_obj == NULL)) return NULL;
+    if (xdig_uniq_obj == NULL) return NULL;
     long nx_uniq = PyArray_SIZE((PyArrayObject *) xdig_uniq_obj);
     np_to_arr(xdig_uniq_obj, &xdig_uniq);
-    np_to_arr(ydig_uniq_obj, &ydig_uniq);
-    decref_all(4, xdig_uniq_obj, ydig_uniq_obj, unique, numpy);
+    decref_all(4, xdig_obj, xdig_uniq_obj, unique, numpy);
     double *vals;
     np_to_arr((PyObject *) arrs[2], &vals);
     long x_sort_ix = 0;
@@ -505,7 +503,7 @@ static PyObject* binned_median(
         for(;;) {
             (*outer_indices)[outer_label_size] = xdig_sort[x_sort_ix];
             outer_label_size += 1;
-            if (x_sort_ix >= arrsize) break;
+            if (x_sort_ix + 1 >= arrsize) break;
             x_sort_ix += 1;
             if ((*xdig)[xdig_sort[x_sort_ix]] != xbin) break;
         }
@@ -517,8 +515,6 @@ static PyObject* binned_median(
         for (long i = 0; i < ny; i++) {
             (*xy_matchix_count)[i] = 0;
         }
-        // TODO: this can be made more efficient with a reverse mapping
-        //  (just like an argsort) from indices of unique y bins to values of unique y bins
         for (long j = 0; j < outer_label_size; j++) {
             long ybin = (*ydig)[(*outer_indices)[j]];
             (*xy_matchix)[ybin][(*xy_matchix_count)[ybin]] = (*outer_indices)[j];
@@ -549,7 +545,7 @@ static PyObject* binned_median(
     long shape[1] = {nx * ny};
     PyObject *medarr = arr_to_np_double(medians, shape);
     free_all(3, xdig_sort, xdig, ydig);
-    decref_all(4, xdig_obj, ydig_obj, arrs[2], arrs[0]);  // np_to_arr steals references to arrs[2] and arrs[0]
+    decref_all(4, xdig_obj, xdig_sort_obj, arrs[2], arrs[0]);  // np_to_arr steals references to arrs[2] and arrs[0]
     return medarr;
 }
 #pragma clang diagnostic pop
