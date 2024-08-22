@@ -204,6 +204,11 @@ PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
 )
 
+#define arr_to_np_long(arr, shape) \
+PyArray_Copy( \
+    (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_LONG, arr) \
+)
+
 static PyArrayObject *init_ndarray2d(npy_intp *dims, npy_intp dtype, npy_intp fill) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
     PyArray_FILLWBYTE(arr2d, fill);
@@ -435,8 +440,6 @@ static PyObject* binned_max(
     return maxarr;
 }
 
-
-
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "MemoryLeak"
 static PyObject* binned_median(
@@ -448,47 +451,40 @@ static PyObject* binned_median(
 ) {
     // TODO: there may be unnecessary copies happening here
     PyObject *xdig_obj, *ydig_obj, *xdig_sort_obj,
-        *xdig_uniq_obj, *ydig_uniq_obj,
-        *numpy, *digitize, *unique,
-        *xbin_obj, *ybin_obj;
+        *xdig_uniq_obj, *ydig_uniq_obj, *numpy, *unique;
     numpy = PyImport_ImportModule("numpy");
-    digitize = PyObject_GetAttrString(numpy, "digitize");
     unique = PyObject_GetAttrString(numpy, "unique");
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
-    double xbins[nx], ybins[ny];
-    for (long i = 0; i < nx; i++) {
-        xbins[i] = space.xmin + (double) i / space.xscl;
-    }
-    for (long i = 0; i < ny; i++) {
-        ybins[i] = space.ymin + (double) i / space.yscl;
-    }
-    // return NULL;
-    long xshape[1] = {nx};
-    long yshape[1] = {ny};
+    PyArrayObject *axes[2] = {arrs[0], arrs[1]};
+    Iterface iter = make_iterface(axes, 2);
+    // NOTE: these should always be identically sized
     long arrsize = PyArray_SIZE(arrs[0]);
-    xbin_obj = PyArray_SimpleNewFromData(1, xshape, NPY_DOUBLE, xbins);
-    ybin_obj = PyArray_SimpleNewFromData(1, yshape, NPY_DOUBLE, ybins);
-    xdig_obj = np_digitize((PyObject*) arrs[0], xbin_obj);
-    ydig_obj = np_digitize((PyObject *) arrs[1], ybin_obj);
-    if ((xdig_obj == NULL) | (ydig_obj == NULL)) {
-        return NULL;
+    long (*xdig)[arrsize] = malloc(sizeof *xdig);
+    long (*ydig)[arrsize] = malloc(sizeof *ydig);
+    for (long i = 0; i < arrsize; i++) {
+        npy_intp itersize = *iter.size;
+        long indices[2];
+        hist_index(&iter, &space, indices);
+        (*xdig)[i] = indices[0];
+        (*ydig)[i] = indices[1];
+        itersize--;
+        stride(iter);
     }
-    decref_all(2, xbin_obj, ybin_obj);
-    long *xdig, *ydig, *xdig_sort, *xdig_uniq, *ydig_uniq;
+    NpyIter_Deallocate(iter.iter);
+    npy_intp arrshape[1] = {arrsize};
+    xdig_obj = arr_to_np_long(xdig, arrshape);
+    ydig_obj = arr_to_np_long(ydig, arrshape);
+    long *xdig_sort, *xdig_uniq, *ydig_uniq;
     xdig_sort_obj = np_argsort(xdig_obj);
     if (xdig_sort_obj == NULL) return NULL;
-    np_to_arr(xdig_obj, &xdig);
     np_to_arr(xdig_sort_obj, &xdig_sort);
-    np_to_arr(ydig_obj, &ydig);
     xdig_uniq_obj = np_unique(xdig_obj);
     ydig_uniq_obj = np_unique(ydig_obj);
     if ((xdig_uniq_obj == NULL) | (ydig_uniq_obj == NULL)) return NULL;
-    // int sig = PyErr_CheckSignals();
     long nx_uniq = PyArray_SIZE((PyArrayObject *) xdig_uniq_obj);
     np_to_arr(xdig_uniq_obj, &xdig_uniq);
-    long ny_uniq = PyArray_SIZE((PyArrayObject *) ydig_uniq_obj);
     np_to_arr(ydig_uniq_obj, &ydig_uniq);
-    decref_all(5, xdig_uniq_obj, ydig_uniq_obj, unique, digitize, numpy);
+    decref_all(4, xdig_uniq_obj, ydig_uniq_obj, unique, numpy);
     double *vals;
     np_to_arr((PyObject *) arrs[2], &vals);
     long x_sort_ix = 0;
@@ -500,7 +496,7 @@ static PyObject* binned_median(
     double* xvals;
     np_to_arr((PyObject *) arrs[0], &xvals);
     for (long xix = 0; xix < nx_uniq; xix++) {
-        long xbin = xdig_uniq[xix] - 1;
+        long xbin = xdig_uniq[xix];
         long (*outer_indices)[arrsize] = malloc(sizeof *outer_indices);
         for (long i = 0; i < arrsize; i++) {
             (*outer_indices)[i] = 0;
@@ -511,7 +507,7 @@ static PyObject* binned_median(
             outer_label_size += 1;
             if (x_sort_ix >= arrsize) break;
             x_sort_ix += 1;
-            if (xdig[xdig_sort[x_sort_ix]] != xbin) break;
+            if ((*xdig)[xdig_sort[x_sort_ix]] != xbin) break;
         }
         if (outer_label_size == 0) continue;
         long (*xy_matchix)[ny][outer_label_size]
@@ -524,7 +520,7 @@ static PyObject* binned_median(
         // TODO: this can be made more efficient with a reverse mapping
         //  (just like an argsort) from indices of unique y bins to values of unique y bins
         for (long j = 0; j < outer_label_size; j++) {
-            long ybin = ydig[(*outer_indices)[j]] - 1;
+            long ybin = (*ydig)[(*outer_indices)[j]];
             (*xy_matchix)[ybin][(*xy_matchix_count)[ybin]] = (*outer_indices)[j];
             (*xy_matchix_count)[ybin] += 1;
         }
@@ -533,7 +529,6 @@ static PyObject* binned_median(
             if (binsize == 0) continue;
             double (*binvals)[binsize] = malloc(sizeof *binvals);
             for (long ix_ix = 0; ix_ix < binsize; ix_ix++) {
-                long ri = (*xy_matchix)[ybin][ix_ix];
                 (*binvals)[ix_ix] = vals[(*xy_matchix)[ybin][ix_ix]];
                 elcount += 1;
             }
