@@ -5,12 +5,6 @@
 #include <float.h>
 #include <signal.h>
 
-static void signalself(int sig) {
-    printf("interrupting self with signal %i\n", sig);
-    kill(getpid(), sig);
-    printf("continuing past interrupt\n");
-}
-
 typedef struct ReturnSpec {
     int count;
     int sum;
@@ -20,6 +14,17 @@ typedef struct ReturnSpec {
     int min;
     int max;
 } ReturnSpec;
+
+static ReturnSpec init_returnspec(int opmask, ReturnSpec *spec) {
+    (*spec).count = (opmask & 2) > 0;
+    (*spec).sum = (opmask & 4) > 0;
+    (*spec).mean = (opmask & 8) > 0;
+    (*spec).std = (opmask & 16) > 0;
+    (*spec).median = (opmask & 32) > 0;
+    (*spec).min = (opmask & 64) > 0;
+    (*spec).max = (opmask & 128) > 0;
+    return (*spec);
+}
 
 typedef struct Iterface {
     char **data;
@@ -32,9 +37,7 @@ typedef struct Iterface {
 } Iterface;
 
 static void stride(Iterface iter) {
-    for (int i = 0; i < iter.n; i++) {
-        iter.data[i] += iter.stride[i];
-    }
+    for (int i = 0; i < iter.n; i++) iter.data[i] += iter.stride[i];
 }
 
 static Iterface make_iterface(PyArrayObject *arrays[], int n_arrays) {
@@ -49,7 +52,8 @@ static Iterface make_iterface(PyArrayObject *arrays[], int n_arrays) {
     iterface.iter = NpyIter_AdvancedNew(
         n_arrays, arrays, NPY_ITER_EXTERNAL_LOOP | NPY_ITER_BUFFERED,
         NPY_KEEPORDER, NPY_SAFE_CASTING, op_flags, dtypes, -1, NULL,
-        NULL, 0);
+        NULL, 0
+    );
     if (iterface.iter == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "Couldn't construct iterator");
         return iterface;
@@ -94,10 +98,13 @@ static Histspace make_histspace(
     return space;
 }
 
-static inline void hist_index(const Iterface *iter, const Histspace *space, long *indices) {
+static void hist_index(
+    const Iterface *iter, const Histspace *space, long *indices
+) {
     double tx = *(double *) (*iter).data[0];
     double ty = *(double *) (*iter).data[1];
-    // TODO, maybe: make the bounds check modal instead of simply enforcing bounds range up top
+    // TODO, maybe: make the bounds check modal instead of simply enforcing
+    //  bounds range up top
 
     // --- DEAD BOUNDS CHECK CODE ---
     //    int inbounds = (
@@ -119,35 +126,46 @@ static inline void hist_index(const Iterface *iter, const Histspace *space, long
     indices[1] = iy;
 }
 
-#define START_VARARGS \
+#define START_VARARG_ITERATION \
 va_list args; \
 va_start(args, n); \
 for (int i = 0; i < n; i++) {
 
-#define END_VARARGS \
+#define END_VARARG_ITERATION \
 }                   \
 va_end(args);
 
+#define NDITER_START \
+do { \
+    npy_intp size = *iter.size; \
+    while (size--) {       \
+        long indices[2]; \
+        hist_index(&iter, &space, indices);
+
+#define NDITER_END \
+        stride(iter); \
+    } \
+} while (iter.iternext(iter.iter)); \
+NpyIter_Deallocate(iter.iter);
+
 static void free_all(int n, ...) {
-    START_VARARGS
+    START_VARARG_ITERATION
     free(va_arg(args, void*));
-    END_VARARGS
+    END_VARARG_ITERATION
 }
 
 static void decref_all(int n, ...)
 {
-    START_VARARGS
+    START_VARARG_ITERATION
     Py_DECREF(va_arg(args, PyObject*));
-    END_VARARGS
+    END_VARARG_ITERATION
 }
 
 static void decref_arrays(long n_arrays, PyArrayObject** arrays) {
-    for (long i = 0; i < n_arrays; i++) {
-        Py_DECREF(arrays[i]);
-    }
+    for (long i = 0; i < n_arrays; i++) Py_DECREF(arrays[i]);
 }
 
-static char check_arrs(const PyArrayObject *arrays[], long n_arrays) {
+static char check_arrs(PyArrayObject *arrays[], long n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
     for (long i = 0; i < n_arrays; i++) {
         if (arrays[i] == NULL) {
@@ -173,6 +191,15 @@ int longcomp(const void *a, const void *b) {
     return 0;
 }
 
+#define ValueError PyExc_ValueError
+#define TypeError PyExc_TypeError
+
+#define np_array PyArray_SimpleNewFromData
+
+#define pyraise(exc_class, msg) \
+PyErr_SetString(exc_class, msg); \
+return NULL;
+
 #define ASSIGN_COUNTSUM \
 (*count)[indices[1] + ny * indices[0]] += 1; \
 (*sum)[indices[1] + ny * indices[0]] += tw;
@@ -196,26 +223,27 @@ static void np_to_arr(PyObject *np_obj, void *c_array) {
 // TODO: why is this copy required to avoid getting the wrong shape?
 #define arr_to_np_double(arr, shape) \
 PyArray_Copy(                        \
-    (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
+    (PyArrayObject *) np_array(1, shape, NPY_DOUBLE, arr) \
 )
 
-void calculate_mean(long nx, long ny, const double *count, const double *val, double* mean) {
+void calculate_mean(
+    long nx, long ny, const double *count, const double *val, double* mean
+) {
     for (long i = 0; i < nx * ny; i++) {
-        if (count[i] == 0) {
-            mean[i] = NAN;
-        } else {
-            mean[i] = val[i] / count[i];
-        }
+        if (count[i] == 0) mean[i] = NAN;
+        else mean[i] = val[i] / count[i];
     }
 }
 
 // TODO: as above, why is this copy required to avoid getting the wrong shape?
 #define arr_to_np_long(arr, shape) \
 PyArray_Copy( \
-    (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_LONG, arr) \
+    (PyArrayObject *) np_array(1, shape, NPY_LONG, arr) \
 )
 
-static PyArrayObject *init_ndarray2d(npy_intp *dims, npy_intp dtype, npy_intp fill) {
+static PyArrayObject *init_ndarray2d(
+    npy_intp *dims, npy_intp dtype, npy_intp fill
+) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
     PyArray_FILLWBYTE(arr2d, fill);
     return arr2d;
@@ -235,18 +263,9 @@ static PyObject* binned_count(
     long dims[2] = {nx, ny};
     PyArrayObject *countarr = init_ndarray2d(dims, NPY_LONG, 0);
     long *count = (long *)PyArray_DATA(countarr);
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            if (indices[0] >= 0) {
-                count[indices[1] + ny * indices[0]] += 1;
-            }
-            stride(iter);
-        }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_START
+        if (indices[0] >= 0) count[indices[1] + ny * indices[0]] += 1;
+    NDITER_END
     return (PyObject *) countarr;
 }
 
@@ -263,21 +282,14 @@ static PyObject* binned_sum(
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
     double (*sum)[nx * ny] = malloc(sizeof *sum);
     for (long i = 0; i < nx * ny; i++) (*sum)[i] = 0;
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            if (indices[0] >= 0) {
-                double tw = *(double *) iter.data[2];
-                (*sum)[indices[1] + ny * indices[0]] += tw;
-            }
-            stride(iter);
+    NDITER_START
+        if (indices[0] >= 0) {
+            double tw = *(double *) iter.data[2];
+            (*sum)[indices[1] + ny * indices[0]] += tw;
         }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_END
     npy_intp outlen[1] = {nx * ny};
-    PyObject *sumarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+    PyObject *sumarr = np_array(1, outlen, NPY_DOUBLE, sum);
     return sumarr;
 }
 
@@ -298,31 +310,24 @@ static PyObject* binned_countvals(
         (*count)[i] = 0;
         (*sum)[i] = 0;
     }
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-                double tw = *(double *) iter.data[2];
-                ASSIGN_COUNTSUM
-            stride(iter);
-        }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_START
+        double tw = *(double *) iter.data[2];
+        ASSIGN_COUNTSUM
+    NDITER_END
     npy_intp outlen[1] = {nx * ny};
     PyObject *output = PyDict_New();
     if (spec.mean == 1) {
         double (*mean)[nx * ny] = malloc(sizeof *mean);
         calculate_mean(nx, ny, *count, *sum, *mean);
-        PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
+        PyObject *meanarr = np_array(1, outlen, NPY_DOUBLE, mean);
         PyDict_SetItemString(output, "mean", meanarr);
     }
     if (spec.sum == 1) {
-        PyObject *valarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+        PyObject *valarr = np_array(1, outlen, NPY_DOUBLE, sum);
         PyDict_SetItemString(output, "sum", valarr);
     } else free(sum);
     if (spec.count == 1) {
-        PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
+        PyObject *countarr = np_array(1, outlen, NPY_DOUBLE, count);
         PyDict_SetItemString(output, "count", countarr);
     } else free(count);
     return output;
@@ -347,24 +352,16 @@ static PyObject* binned_std(
         (*sum)[i] = 0;
         (*sqr)[i] = 0;
     }
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            double tw = *(double *) iter.data[2];
-            ASSIGN_COUNTSUM
-            (*sqr)[indices[1] + ny * indices[0]] += (tw * tw);
-            stride(iter);
-        }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_START
+        double tw = *(double *) iter.data[2];
+        ASSIGN_COUNTSUM
+        (*sqr)[indices[1] + ny * indices[0]] += (tw * tw);
+    NDITER_END
     PyObject *output = PyDict_New();
     double (*std)[nx * ny] = malloc(sizeof *std);
     for (long i = 0; i < nx * ny; i++) {
-        if ((*count)[i] == 0) {
-            (*std)[i] = NAN;
-        } else {
+        if ((*count)[i] == 0) (*std)[i] = NAN;
+        else {
             (*std)[i] = sqrt(
                 ((*sqr)[i] * (*count)[i] - ((*sum)[i] * (*sum)[i]))
                 / ((*count)[i] * (*count)[i])
@@ -372,21 +369,21 @@ static PyObject* binned_std(
         }
     }
     npy_intp outlen[1] = {nx * ny};
-    PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
+    PyObject *stdarr = np_array(1, outlen, NPY_DOUBLE, std);
     PyDict_SetItemString(output, "std", stdarr);
     free(sqr);
     if (spec.mean == 1) {
         double (*mean)[nx * ny] = malloc(sizeof *mean);
         calculate_mean(nx, ny, *count, *sum, *mean);
-        PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
+        PyObject *meanarr = np_array(1, outlen, NPY_DOUBLE, mean);
         PyDict_SetItemString(output, "mean", meanarr);
     }
     if (spec.sum == 1) {
-        PyObject *sumarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+        PyObject *sumarr = np_array(1, outlen, NPY_DOUBLE, sum);
         PyDict_SetItemString(output, "sum", sumarr);
     } else free(sum);
     if (spec.count == 1) {
-        PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
+        PyObject *countarr = np_array(1, outlen, NPY_DOUBLE, count);
         PyDict_SetItemString(output, "count", countarr);
     } else free(count);
     return output;
@@ -398,7 +395,7 @@ static PyObject* binned_minmax(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec spec
+    ReturnSpec _ignored
     // this feels _painfully_ repetitive with binned_min() and binned_max()
 ) {
     Iterface iter = make_iterface(arrs, 3);
@@ -410,23 +407,15 @@ static PyObject* binned_minmax(
         (*min)[i] = DBL_MAX;
         (*max)[i] = DBL_MIN;
     }
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            double tw = *(double *) iter.data[2];
-            if ((*min)[indices[1] + ny * indices[0]] > tw) {
-                (*min)[indices[1] + ny * indices[0]] = tw;
-            }
-
-            if ((*max)[indices[1] + ny * indices[0]] < tw) {
-                (*max)[indices[1] + ny * indices[0]] = tw;
-            }
-            stride(iter);
+    NDITER_START
+        double tw = *(double *) iter.data[2];
+        if ((*min)[indices[1] + ny * indices[0]] > tw) {
+            (*min)[indices[1] + ny * indices[0]] = tw;
         }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+        if ((*max)[indices[1] + ny * indices[0]] < tw) {
+            (*max)[indices[1] + ny * indices[0]] = tw;
+        }
+    NDITER_END
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MAX / DBL_MIN;
     //  just have a special case up top
@@ -436,8 +425,8 @@ static PyObject* binned_minmax(
     }
     npy_intp outlen[1] = {nx * ny};
     PyObject *output = PyDict_New();
-    PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
-    PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
+    PyObject *minarr = np_array(1, outlen, NPY_DOUBLE, min);
+    PyObject *maxarr = np_array(1, outlen, NPY_DOUBLE, max);
     PyDict_SetItemString(output, "min", minarr);
     PyDict_SetItemString(output, "max", maxarr);
     return output;
@@ -456,22 +445,13 @@ static PyObject* binned_min(
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
     double (*min)[nx * ny] = malloc(sizeof *min);
-    for (long i = 0; i < nx * ny; i++) {
-        (*min)[i] = DBL_MAX;
-    }
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            double tw = *(double *) iter.data[2];
-            if ((*min)[indices[1] + ny * indices[0]] > tw) {
-                (*min)[indices[1] + ny * indices[0]] = tw;
-            }
-            stride(iter);
+    for (long i = 0; i < nx * ny; i++) (*min)[i] = DBL_MAX;
+    NDITER_START
+        double tw = *(double *) iter.data[2];
+        if ((*min)[indices[1] + ny * indices[0]] > tw) {
+            (*min)[indices[1] + ny * indices[0]] = tw;
         }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_END
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MAX;
     //  just have a special case up top
@@ -479,7 +459,7 @@ static PyObject* binned_min(
         if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
     }
     npy_intp outlen[1] = {nx * ny};
-    PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
+    PyObject *minarr = np_array(1, outlen, NPY_DOUBLE, min);
     return minarr;
 }
 
@@ -496,34 +476,23 @@ static PyObject* binned_max(
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
     double (*max)[nx * ny] = malloc(sizeof *max);
-    for (long i = 0; i < nx * ny; i++) {
-        (*max)[i] = DBL_MIN;
-    }
-    do {
-        npy_intp size = *iter.size;
-        while (size--) {
-            long indices[2];
-            hist_index(&iter, &space, indices);
-            double tw = *(double *) iter.data[2];
-            if ((*max)[indices[1] + ny * indices[0]] < tw) {
-                (*max)[indices[1] + ny * indices[0]] = tw;
-            }
-            stride(iter);
+    for (long i = 0; i < nx * ny; i++) (*max)[i] = DBL_MIN;
+    NDITER_START
+        double tw = *(double *) iter.data[2];
+        if ((*max)[indices[1] + ny * indices[0]] < tw) {
+            (*max)[indices[1] + ny * indices[0]] = tw;
         }
-    } while (iter.iternext(iter.iter));
-    NpyIter_Deallocate(iter.iter);
+    NDITER_END
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with DBL_MIN
     for (long i = 0; i < nx * ny; i++) {
         if ((*max)[i] == DBL_MIN) (*max)[i] = NAN;
     }
     npy_intp outlen[1] = {nx * ny};
-    PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
+    PyObject *maxarr = np_array(1, outlen, NPY_DOUBLE, max);
     return maxarr;
 }
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "MemoryLeak"
 static PyObject* binned_median(
     PyArrayObject *arrs[3],
     double xbounds[2],
@@ -570,169 +539,122 @@ static PyObject* binned_median(
     np_to_arr((PyObject *) arrs[2], &vals);
     long x_sort_ix = 0;
     double (*medians)[nx * ny] = malloc(sizeof *medians);
-    for (long mi = 0; mi < nx * ny; mi++) {
-        (*medians)[mi] = NAN;
-    }
+    for (long mi = 0; mi < nx * ny; mi++) (*medians)[mi] = NAN;
     long elcount = 0;
     double* xvals;
     np_to_arr((PyObject *) arrs[0], &xvals);
     for (long xix = 0; xix < nx_uniq; xix++) {
         long xbin = xdig_uniq[xix];
-        long (*outer_indices)[arrsize] = malloc(sizeof *outer_indices);
-        for (long i = 0; i < arrsize; i++) {
-            (*outer_indices)[i] = 0;
-        } 
-        long outer_label_size = 0;
+        // TODO: is it actually more efficient to loop over the array once
+        //  to count the bins, allocate xbin_indices of the actually-required
+        //  size, and then loop over it again?
+        long (*xbin_indices)[arrsize] = malloc(sizeof *xbin_indices);
+        for (long i = 0; i < arrsize; i++) (*xbin_indices)[i] = 0;
+        long xbin_elcount = 0;
         for(;;) {
-            (*outer_indices)[outer_label_size] = xdig_sort[x_sort_ix];
-            outer_label_size += 1;
+            (*xbin_indices)[xbin_elcount] = xdig_sort[x_sort_ix];
+            xbin_elcount += 1;
             if (x_sort_ix + 1 >= arrsize) break;
             x_sort_ix += 1;
             if ((*xdig)[xdig_sort[x_sort_ix]] != xbin) break;
         }
-        if (outer_label_size == 0) continue;
-        long (*xy_matchix)[ny][outer_label_size]
-            = malloc(sizeof *xy_matchix);
-        long (*xy_matchix_count)[ny]
-            = malloc(sizeof *xy_matchix_count);
-        for (long i = 0; i < ny; i++) {
-            (*xy_matchix_count)[i] = 0;
-        }
-        for (long j = 0; j < outer_label_size; j++) {
-            long ybin = (*ydig)[(*outer_indices)[j]];
-            (*xy_matchix)[ybin][(*xy_matchix_count)[ybin]] = (*outer_indices)[j];
-            (*xy_matchix_count)[ybin] += 1;
+        if (xbin_elcount == 0) continue;
+        long (*match_buckets)[ny][xbin_elcount] = malloc(sizeof *match_buckets);
+        long (*match_count)[ny] = malloc(sizeof *match_count);
+        for (long i = 0; i < ny; i++) (*match_count)[i] = 0;
+        for (long j = 0; j < xbin_elcount; j++) {
+            long ybin = (*ydig)[(*xbin_indices)[j]];
+            (*match_buckets)[ybin][(*match_count)[ybin]] = (*xbin_indices)[j];
+            (*match_count)[ybin] += 1;
         }
         for (long ybin = 0; ybin < ny; ybin++) {
-            long binsize = (*xy_matchix_count)[ybin];
+            long binsize = (*match_count)[ybin];
             if (binsize == 0) continue;
             double (*binvals)[binsize] = malloc(sizeof *binvals);
             for (long ix_ix = 0; ix_ix < binsize; ix_ix++) {
-                (*binvals)[ix_ix] = vals[(*xy_matchix)[ybin][ix_ix]];
+                (*binvals)[ix_ix] = vals[(*match_buckets)[ybin][ix_ix]];
                 elcount += 1;
             }
             qsort(binvals, binsize, sizeof(double), longcomp);
             double median;
-            if (binsize % 2 == 1) {
-                median = (*binvals)[binsize / 2];
-            } else {
-                median = (
-                    (*binvals)[binsize / 2] + (*binvals)[binsize / 2 - 1]
-                ) / 2;
-            }
+            if (binsize % 2 == 1) median = (*binvals)[binsize / 2];
+            else median = (
+                (*binvals)[binsize / 2] + (*binvals)[binsize / 2 - 1]
+            ) / 2;
             (*medians)[ybin + space.ny * xbin] = median;
             free(binvals);
         }
-        free_all(3, xy_matchix, xy_matchix_count, outer_indices);
+        free_all(3, match_buckets, match_count, xbin_indices);
     }
     long shape[1] = {nx * ny};
     PyObject *medarr = arr_to_np_double(medians, shape);
     free_all(3, xdig_sort, xdig, ydig);
-    decref_all(4, xdig_obj, xdig_sort_obj, arrs[2], arrs[0]);  // np_to_arr steals references to arrs[2] and arrs[0]
+    // np_to_arr steals references to arrs[2] and arrs[0]
+    decref_all(4, xdig_obj, xdig_sort_obj, arrs[2], arrs[0]);
     return medarr;
 }
-#pragma clang diagnostic pop
-
 
 static PyObject* genhist(PyObject *self, PyObject *args) {
     long nx, ny;
-    int ops;
+    int opmask;
     double xmin, xmax, ymin, ymax;
     PyObject *x_arg, *y_arg, *val_arg;
     if (
         !PyArg_ParseTuple(args, "OOOddddlli",
         &x_arg, &y_arg, &val_arg, &xmin, &xmax,
-        &ymin, &ymax, &nx, &ny, &ops)
+        &ymin, &ymax, &nx, &ny, &opmask)
     ) {
-        PyErr_SetString(PyExc_TypeError, "Bad argument");
-        return NULL;
+        pyraise(TypeError, "Bad argument list")
     }
-    ReturnSpec spec;
     // TODO: there must be a cleaner way to do this, right?
-    if (Py_IsNone(val_arg) && ops != 1) {
-        PyErr_SetString(
-            PyExc_TypeError, "value array may only be None for 'count' op"
-        );
-        return NULL;
+    if (Py_IsNone(val_arg) && opmask != 1) {
+        pyraise(TypeError, "vals may only be None for 'count'")
     }
-    if ((ops <= 0) | (ops > 255)) {
-        PyErr_SetString(
-            PyExc_ValueError, "op specification out of range"
-        );
-        return NULL;
+    if ((opmask <= 0) | (opmask > 255)) {
+        pyraise(ValueError, "op bitmask out of range")
     }
     // TODO: this is so gross
-    spec.count = (ops & 2) > 0;
-    spec.sum = (ops & 4) > 0;
-    spec.mean = (ops & 8) > 0;
-    spec.std = (ops & 16) > 0;
-    spec.median = (ops & 32) > 0;
-    spec.min = (ops & 64) > 0;
-    spec.max = (ops & 128) > 0;
-    if ((spec.median == 1) && (ops != 32)) {
-        PyErr_SetString(
-            PyExc_ValueError,
-            "median can only be computed alone"
-        );
-        return NULL;
+    ReturnSpec spec;
+    spec = init_returnspec(opmask, &spec);
+    if ((spec.median == 1) && (opmask != 32)) {
+        pyraise(ValueError, "median can only be computed alone");
     }
-    if ((ops >= 64) && (ops % 64 != 0)) {
-        PyErr_SetString(
-            PyExc_ValueError,
-            "min/max can be computed with one another, "
-            "but with no other stats"
-        );
-        return NULL;
+    if ((opmask >= 64) && (opmask % 64 != 0)) {
+        pyraise(ValueError, "min/max cannot be computed with non-min/max stats")
     }
     PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long, ReturnSpec);
-    if (spec.std == 1) {
-        binfunc = binned_std;
-    }
+    if (spec.std == 1) binfunc = binned_std;
     else if ((spec.mean == 1) || (spec.count + spec.sum == 2)) {
         binfunc = binned_countvals;
     }
-    else if (spec.sum == 1) {
-        binfunc = binned_sum;
-    }
-    else if (spec.count == 1) {
-        binfunc = binned_count;
-    }
-    else if ((spec.min + spec.max) == 2) {
-        binfunc = binned_minmax;
-    }
-    else if (spec.min == 1) {
-        binfunc = binned_min;
-    }
-    else if (spec.max == 1) {
-        binfunc = binned_max;
-    }
-    else if (spec.median == 1) {
-        binfunc = binned_median;
-    }
+    else if (spec.sum == 1) binfunc = binned_sum;
+    else if (spec.count == 1) binfunc = binned_count;
+    else if ((spec.min + spec.max) == 2) binfunc = binned_minmax;
+    else if (spec.min == 1) binfunc = binned_min;
+    else if (spec.max == 1) binfunc = binned_max;
+    else if (spec.median == 1) binfunc = binned_median;
     else {
-        PyErr_SetString(
-            PyExc_ValueError,
-            "Unclassified bad operation specification"
-        );
-        return NULL;
+        pyraise(ValueError, "Unclassified bad op specification")
     }
     PyArrayObject *arrays[3];
     arrays[0] = (PyArrayObject *) PyArray_FROM_O(x_arg);
     arrays[1] = (PyArrayObject *) PyArray_FROM_O(y_arg);
     char ok;
     long n_arrs;
-    if (ops == 2) n_arrs = 2; else n_arrs = 3;
+    if (opmask == 2) n_arrs = 2; else n_arrs = 3;
     if (n_arrs == 3) {
         arrays[2] = (PyArrayObject *) PyArray_FROM_O(val_arg);
         ok = check_arrs(arrays, n_arrs);
     }
     else ok = check_arrs(arrays, n_arrs);
     if (ok == 0) {
-        // TODO: are these decrefs necessary?
+        // TODO: are these decrefs necessary in this branch?
         if (n_arrs == 2) {
             decref_all(2, arrays[0], arrays[1]);
         }
-        else decref_all(3, arrays[0], arrays[1], arrays[2]);
+        else {
+            decref_all(3, arrays[0], arrays[1], arrays[2]);
+        }
         return NULL;
     }
     double xbounds[2] = {xmin, xmax};
@@ -740,11 +662,8 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny, spec);
     decref_arrays(n_arrs, arrays);
     if (binned_arr == NULL) {
-        PyObject *err = PyErr_Occurred();
-        if (err == NULL) {
-            PyErr_SetString(
-                PyExc_RuntimeError, "Unclassified error in binning"
-            );
+        if (PyErr_Occurred() == NULL) {
+            PyErr_SetString(PyExc_RuntimeError, "Unclassified error in binning");
         }
         return NULL;
     }
