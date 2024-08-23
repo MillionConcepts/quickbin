@@ -11,15 +11,15 @@ static void signalself(int sig) {
     printf("continuing past interrupt\n");
 }
 
-enum HistOp {
-    OP_COUNT = 0,
-    OP_SUM = 1,
-    OP_MEAN = 2,
-    OP_STD = 3,
-    OP_MEDIAN = 4,
-    OP_MIN = 5,
-    OP_MAX = 6,
-};
+typedef struct ReturnSpec {
+    int count;
+    int sum;
+    int mean;
+    int std;
+    int median;
+    int min;
+    int max;
+} ReturnSpec;
 
 typedef struct Iterface {
     char **data;
@@ -141,8 +141,8 @@ static void decref_all(int n, ...)
     END_VARARGS
 }
 
-static void decref_arrays(int n_arrays, PyArrayObject** arrays) {
-    for (int i = 0; i < n_arrays; i++) {
+static void decref_arrays(long n_arrays, PyArrayObject** arrays) {
+    for (long i = 0; i < n_arrays; i++) {
         Py_DECREF(arrays[i]);
     }
 }
@@ -173,15 +173,9 @@ int longcomp(const void* a, const void* b) {
     return 0;
 }
 
-#define ASSIGN_COUNTVAL \
+#define ASSIGN_COUNTSUM \
 (*count)[indices[1] + ny * indices[0]] += 1; \
-(*val)[indices[1] + ny * indices[0]] += tw;
-
-
-#define np_digitize(arr1, arr2) \
-PyObject_CallFunctionObjArgs( \
-    digitize, arr1, arr2, Py_False, NULL \
-)
+(*sum)[indices[1] + ny * indices[0]] += tw;
 
 #define np_argsort(arr) \
 PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT)   \
@@ -204,6 +198,18 @@ PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
 )
 
+
+void calculate_mean(long nx, long ny, const double *count, const double *val, double* mean) {
+    for (long i = 0; i < nx * ny; i++) {
+        if (count[i] == 0) {
+            mean[i] = NAN;
+        } else {
+            mean[i] = val[i] / count[i];
+        }
+    }
+}
+
+
 #define arr_to_np_long(arr, shape) \
 PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_LONG, arr) \
@@ -220,7 +226,8 @@ static PyObject* binned_count(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec _ignored
 ) {
     Iterface iter = make_iterface(arrs, 2);
     if (iter.initialized == 0) return NULL;
@@ -248,13 +255,14 @@ static PyObject* binned_sum(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec _ignored
 ) {
     Iterface iter = make_iterface(arrs, 3);
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
-    double (*count)[nx * ny] = malloc(sizeof *count);
-    for (long i = 0; i < nx * ny; i++) (*count)[i] = 0;
+    double (*sum)[nx * ny] = malloc(sizeof *sum);
+    for (long i = 0; i < nx * ny; i++) (*sum)[i] = 0;
     do {
         npy_intp size = *iter.size;
         while (size--) {
@@ -262,34 +270,33 @@ static PyObject* binned_sum(
             hist_index(&iter, &space, indices);
             if (indices[0] >= 0) {
                 double tw = *(double *) iter.data[2];
-                (*count)[indices[1] + ny * indices[0]] += tw;
+                (*sum)[indices[1] + ny * indices[0]] += tw;
             }
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
-    PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
-    return countarr;
+    PyObject *sumarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+    return sumarr;
 }
 
-static PyObject* binned_mean(
+static PyObject* binned_countvals(
     PyArrayObject *arrs[3],
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec spec
 ) {
     Iterface iter = make_iterface(arrs, 3);
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
     double (*count)[nx * ny] = malloc(sizeof *count);
-    double (*val)[nx * ny] = malloc(sizeof *val);
-    double (*mean)[nx * ny] = malloc(sizeof *mean);
+    double (*sum)[nx * ny] = malloc(sizeof *sum);
     for (long i = 0; i < nx * ny; i++) {
         (*count)[i] = 0;
-        (*val)[i] = 0;
-        (*mean)[i] = 0;
+        (*sum)[i] = 0;
     }
     do {
         npy_intp size = *iter.size;
@@ -297,23 +304,28 @@ static PyObject* binned_mean(
             long indices[2];
             hist_index(&iter, &space, indices);
                 double tw = *(double *) iter.data[2];
-                ASSIGN_COUNTVAL
+                ASSIGN_COUNTSUM
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
-    for (long i = 0; i < nx * ny; i++) {
-        if ((*count)[i] == 0) {
-            (*mean)[i] = NAN;
-        } else {
-            (*mean)[i] = (*val)[i] / (*count)[i];
-        }
-    }
-
     NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
-    PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
-    free_all(2, count, val);
-    return meanarr;
+    PyObject *output = PyDict_New();
+    if (spec.mean == 1) {
+        double (*mean)[nx * ny] = malloc(sizeof *mean);
+        calculate_mean(nx, ny, *count, *sum, *mean);
+        PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
+        PyDict_SetItemString(output, "mean", meanarr);
+    }
+    if (spec.sum == 1) {
+        PyObject *valarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+        PyDict_SetItemString(output, "sum", valarr);
+    } else free(sum);
+    if (spec.count == 1) {
+        PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
+        PyDict_SetItemString(output, "count", countarr);
+    } else free(count);
+    return output;
 }
 
 static PyObject* binned_std(
@@ -321,17 +333,18 @@ static PyObject* binned_std(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec spec
 ) {
     Iterface iter = make_iterface(arrs, 3);
     if (iter.initialized == 0) return NULL;
     Histspace space = make_histspace(xbounds, ybounds, nx, ny);
     double (*count)[nx * ny] = malloc(sizeof *count);
-    double (*val)[nx * ny] = malloc(sizeof *val);
+    double (*sum)[nx * ny] = malloc(sizeof *sum);
     double (*sqr)[nx * ny] = malloc(sizeof *sqr);
     for (long i = 0; i < nx * ny; i++) {
         (*count)[i] = 0;
-        (*val)[i] = 0;
+        (*sum)[i] = 0;
         (*sqr)[i] = 0;
     }
     do {
@@ -340,27 +353,94 @@ static PyObject* binned_std(
             long indices[2];
             hist_index(&iter, &space, indices);
             double tw = *(double *) iter.data[2];
-            ASSIGN_COUNTVAL
+            ASSIGN_COUNTSUM
             (*sqr)[indices[1] + ny * indices[0]] += (tw * tw);
             stride(iter);
         }
     } while (iter.iternext(iter.iter));
+    NpyIter_Deallocate(iter.iter);
+    PyObject *output = PyDict_New();
     double (*std)[nx * ny] = malloc(sizeof *std);
     for (long i = 0; i < nx * ny; i++) {
         if ((*count)[i] == 0) {
             (*std)[i] = NAN;
         } else {
             (*std)[i] = sqrt(
-                ((*sqr)[i] * (*count)[i] - ((*val)[i] * (*val)[i]))
+                ((*sqr)[i] * (*count)[i] - ((*sum)[i] * (*sum)[i]))
                 / ((*count)[i] * (*count)[i])
             );
         }
     }
-    NpyIter_Deallocate(iter.iter);
     npy_intp outlen[1] = {nx * ny};
     PyObject *stdarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, std);
-    free_all(3, count, val, sqr);
-    return stdarr;
+    PyDict_SetItemString(output, "std", stdarr);
+    free(sqr);
+    if (spec.mean == 1) {
+        double (*mean)[nx * ny] = malloc(sizeof *mean);
+        calculate_mean(nx, ny, *count, *sum, *mean);
+        PyObject *meanarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, mean);
+        PyDict_SetItemString(output, "mean", meanarr);
+    }
+    if (spec.sum == 1) {
+        PyObject *sumarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, sum);
+        PyDict_SetItemString(output, "sum", sumarr);
+    } else free(sum);
+    if (spec.count == 1) {
+        PyObject *countarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, count);
+        PyDict_SetItemString(output, "count", countarr);
+    } else free(count);
+    return output;
+}
+
+static PyObject* binned_minmax(
+    PyArrayObject *arrs[3],
+    double xbounds[2],
+    double ybounds[2],
+    long nx,
+    long ny,
+    ReturnSpec spec
+    // this feels _painfully_ repetitive with binned_min() and binned_max()
+) {
+    Iterface iter = make_iterface(arrs, 3);
+    if (iter.initialized == 0) return NULL;
+    Histspace space = make_histspace(xbounds, ybounds, nx, ny);
+    double (*min)[nx * ny] = malloc(sizeof *min);
+    double (*max)[nx * ny] = malloc(sizeof *max);
+    for (long i = 0; i < nx * ny; i++) {
+        (*min)[i] = DBL_MAX;
+        (*max)[i] = DBL_MIN;
+    }
+    do {
+        npy_intp size = *iter.size;
+        while (size--) {
+            long indices[2];
+            hist_index(&iter, &space, indices);
+            double tw = *(double *) iter.data[2];
+            if ((*min)[indices[1] + ny * indices[0]] > tw) {
+                (*min)[indices[1] + ny * indices[0]] = tw;
+            }
+
+            if ((*max)[indices[1] + ny * indices[0]] < tw) {
+                (*max)[indices[1] + ny * indices[0]] = tw;
+            }
+            stride(iter);
+        }
+    } while (iter.iternext(iter.iter));
+    NpyIter_Deallocate(iter.iter);
+    // TODO: this will produce NaNs in the perverse case where
+    //  an array is filled entirely with DBL_MAX / DBL_MIN;
+    //  just have a special case up top
+    for (long i = 0; i < nx * ny; i++) {
+        if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
+        if ((*max)[i] == DBL_MIN) (*max)[i] = NAN;
+    }
+    npy_intp outlen[1] = {nx * ny};
+    PyObject *output = PyDict_New();
+    PyObject *minarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, min);
+    PyObject *maxarr = PyArray_SimpleNewFromData(1, outlen, NPY_DOUBLE, max);
+    PyDict_SetItemString(output, "min", minarr);
+    PyDict_SetItemString(output, "max", maxarr);
+    return output;
 }
 
 static PyObject* binned_min(
@@ -368,7 +448,8 @@ static PyObject* binned_min(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec _ignored
     // this feels _painfully_ repetitive with binned_max()
 ) {
     Iterface iter = make_iterface(arrs, 3);
@@ -407,7 +488,8 @@ static PyObject* binned_max(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec _ignored
     // this feels _painfully_ repetitive with binned_min()
 ) {
     Iterface iter = make_iterface(arrs, 3);
@@ -447,7 +529,8 @@ static PyObject* binned_median(
     double xbounds[2],
     double ybounds[2],
     long nx,
-    long ny
+    long ny,
+    ReturnSpec _ignored
 ) {
     // TODO: there may be unnecessary copies happening here
     PyObject *xdig_obj, *xdig_sort_obj,
@@ -553,21 +636,83 @@ static PyObject* binned_median(
 
 static PyObject* genhist(PyObject *self, PyObject *args) {
     long nx, ny;
-    int op;
+    int ops;
     double xmin, xmax, ymin, ymax;
     PyObject *x_arg, *y_arg, *val_arg;
     if (
         !PyArg_ParseTuple(args, "OOOddddlli",
         &x_arg, &y_arg, &val_arg, &xmin, &xmax,
-        &ymin, &ymax, &nx, &ny, &op)
+        &ymin, &ymax, &nx, &ny, &ops)
     ) {
         PyErr_SetString(PyExc_TypeError, "Bad argument");
         return NULL;
     }
-    if (Py_IsNone(val_arg) && op != OP_COUNT) {
+    ReturnSpec spec;
+    // TODO: there must be a cleaner way to do this, right?
+    if (Py_IsNone(val_arg) && ops != 1) {
         PyErr_SetString(
-            PyExc_TypeError,
-            "value array may only be None for 'count' op"
+            PyExc_TypeError, "value array may only be None for 'count' op"
+        );
+        return NULL;
+    }
+    if ((ops <= 0) | (ops > 255)) {
+        PyErr_SetString(
+            PyExc_ValueError, "op specification out of range"
+        );
+        return NULL;
+    }
+    // TODO: this is so gross
+    spec.count = (ops & 2) > 0;
+    spec.sum = (ops & 4) > 0;
+    spec.mean = (ops & 8) > 0;
+    spec.std = (ops & 16) > 0;
+    spec.median = (ops & 32) > 0;
+    spec.min = (ops & 64) > 0;
+    spec.max = (ops & 128) > 0;
+    if ((spec.median == 1) && (ops != 32)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "median can only be computed alone"
+        );
+        return NULL;
+    }
+    if ((ops >= 64) && (ops % 64 != 0)) {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "min/max can be computed with one another, "
+            "but with no other stats"
+        );
+        return NULL;
+    }
+    PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long, ReturnSpec);
+    if (spec.std == 1) {
+        binfunc = binned_std;
+    }
+    else if ((spec.mean == 1) || (spec.count + spec.sum == 2)) {
+        binfunc = binned_countvals;
+    }
+    else if (spec.sum == 1) {
+        binfunc = binned_sum;
+    }
+    else if (spec.count == 1) {
+        binfunc = binned_count;
+    }
+    else if ((spec.min + spec.max) == 2) {
+        binfunc = binned_minmax;
+    }
+    else if (spec.min == 1) {
+        binfunc = binned_min;
+    }
+    else if (spec.max == 1) {
+        binfunc = binned_max;
+    }
+    else if (spec.median == 1) {
+        binfunc = binned_median;
+    }
+    else {
+        PyErr_SetString(
+            PyExc_ValueError,
+            "Unclassified bad operation specification"
         );
         return NULL;
     }
@@ -576,45 +721,23 @@ static PyObject* genhist(PyObject *self, PyObject *args) {
     arrays[1] = (PyArrayObject *) PyArray_FROM_O(y_arg);
     char ok;
     long n_arrs;
-    if (op == OP_COUNT) n_arrs = 2; else n_arrs = 3;
+    if (ops == 2) n_arrs = 2; else n_arrs = 3;
     if (n_arrs == 3) {
         arrays[2] = (PyArrayObject *) PyArray_FROM_O(val_arg);
         ok = check_arrs(arrays, n_arrs);
     }
     else ok = check_arrs(arrays, n_arrs);
     if (ok == 0) {
+        // TODO: are these decrefs necessary?
+        if (n_arrs == 2) {
+            decref_all(2, arrays[0], arrays[1]);
+        }
+        else decref_all(3, arrays[0], arrays[1], arrays[2]);
         return NULL;
-    }
-    PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long);
-    switch(op) {
-        case OP_COUNT:
-            binfunc = binned_count;
-            break;
-        case OP_SUM:
-            binfunc = binned_sum;
-            break;
-        case OP_MEAN:
-            binfunc = binned_mean;
-            break;
-        case OP_STD:
-            binfunc = binned_std;
-            break;
-        case OP_MEDIAN:
-            binfunc = binned_median;
-            break;
-        case OP_MIN:
-            binfunc = binned_min;
-            break;
-        case OP_MAX:
-            binfunc = binned_max;
-            break;
-        default:
-            PyErr_SetString(PyExc_ValueError, "unknown operation");
-            return NULL;
     }
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
-    PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny);
+    PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny, spec);
     decref_arrays(n_arrs, arrays);
     if (binned_arr == NULL) {
         PyObject *err = PyErr_Occurred();
@@ -648,7 +771,7 @@ static struct PyModuleDef quickbin_core_mod = {
 };
 
 PyMODINIT_FUNC PyInit__quickbin_core(void) {
-    import_array();
+    import_array()
     return PyModule_Create(&quickbin_core_mod);
 }
 

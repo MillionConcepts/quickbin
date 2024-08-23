@@ -1,5 +1,7 @@
+from enum import Enum
 from numbers import Integral, Number
 import signal
+from types import MappingProxyType as MPt
 from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
@@ -8,18 +10,19 @@ from quickbin._quickbin_core import genhist
 
 INTERRUPTS_RECEIVED = []
 
-# TODO: find a way to share an object between this and the C module
-OpName = Literal["count", "sum", "mean", "std", "median", "min", "max"]
-OPS = {
-    'count': 0,
-    'sum': 1,
-    'mean': 2,
-    'std': 3,
-    'median': 4,
-    'min': 5,
-    'max': 6
-}
 
+# TODO: find a way to share an object between this and the C module
+class Ops(Enum):
+    count = 2
+    sum = 4
+    mean = 8
+    std = 16
+    median = 32
+    min = 64
+    max = 128
+
+OPS = MPt(Ops.__members__)
+OpName = Literal["count", "sum", "mean", "std", "median", "min", "max"]
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 
 
@@ -27,7 +30,7 @@ def bin2d(
     x_arr: np.ndarray,
     y_arr: np.ndarray,
     val_arr: np.ndarray,
-    op: OpName,
+    op: Union[OpName, Sequence[OpName]],
     n_bins: Union[Integral, Sequence[int]],
     bbounds: Optional[
         tuple[tuple[Number, Number], tuple[Number, Number]]
@@ -64,27 +67,31 @@ def bin2d(
                 raise ValueError("x and y values must fall within bbounds")
         ranges = (bbounds[0][0], bbounds[0][1], bbounds[1][0], bbounds[1][1])
     ranges = tuple(map(float, ranges))
-    if (op := op.lower()) not in OPS.keys():
+    ops = {op} if isinstance(op, str) else set(op)
+    if not set(ops).issubset(OPS.keys()):
         raise ValueError(
-            f"Unknown operation {op}. "
+            f"Unknown operation(s) {ops.difference(OPS.keys())}. "
             f"Valid operations are {', '.join(OPS.keys())}."
         )
 
     def make_interrupter():
-        base_interrupter = signal.getsignal(signal.SIGINT)
-        has_interrupted = 0
-
+        # TODO: politely replace default keyboardinterrupt
         def interrupter(signalnum, frame):
             INTERRUPTS_RECEIVED.append(signal.SIGINT)
             raise KeyboardInterrupt
 
         return interrupter
-
+    oparg = sum(OPS[o].value for o in map(str.lower, ops))
     try:
         signal.signal(signal.SIGINT, make_interrupter())
-        return genhist(*arrs, *ranges, *n_bins, OPS[op]).reshape(n_bins)
+        res = genhist(*arrs, *ranges, *n_bins, oparg)
+        if isinstance(res, np.ndarray):
+            return res.reshape(n_bins)
+        elif len(res) == 1:
+            return tuple(res.values())[0].reshape(n_bins)
+        return {k: v.reshape(n_bins) for k, v in res.items()}
     except Exception as ex:
-        # if len(INTERRUPTS_RECEIVED) > 0:
-        #     raise KeyboardInterrupt
+        if len(INTERRUPTS_RECEIVED) > 0:
+            raise KeyboardInterrupt
         raise ex
 
