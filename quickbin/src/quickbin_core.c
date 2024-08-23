@@ -94,7 +94,7 @@ static Histspace make_histspace(
     return space;
 }
 
-static inline void hist_index(Iterface *iter, Histspace *space, long *indices) {
+static inline void hist_index(const Iterface *iter, const Histspace *space, long *indices) {
     double tx = *(double *) (*iter).data[0];
     double ty = *(double *) (*iter).data[1];
     // TODO, maybe: make the bounds check modal instead of simply enforcing bounds range up top
@@ -147,7 +147,7 @@ static void decref_arrays(long n_arrays, PyArrayObject** arrays) {
     }
 }
 
-static char check_arrs(PyArrayObject *arrays[], long n_arrays) {
+static char check_arrs(const PyArrayObject *arrays[], long n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
     for (long i = 0; i < n_arrays; i++) {
         if (arrays[i] == NULL) {
@@ -166,7 +166,7 @@ static char check_arrs(PyArrayObject *arrays[], long n_arrays) {
     return 1;
 }
 
-int longcomp(const void* a, const void* b) {
+int longcomp(const void *a, const void *b) {
     long *aval = (long *) a, *bval = (long *) b;
     if (*aval > *bval) return 1;
     if (*bval > *aval) return -1;
@@ -193,11 +193,11 @@ static void np_to_arr(PyObject *np_obj, void *c_array) {
     );
 }
 
+// TODO: why is this copy required to avoid getting the wrong shape?
 #define arr_to_np_double(arr, shape) \
-PyArray_Copy( \
+PyArray_Copy(                        \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_DOUBLE, arr) \
 )
-
 
 void calculate_mean(long nx, long ny, const double *count, const double *val, double* mean) {
     for (long i = 0; i < nx * ny; i++) {
@@ -209,7 +209,7 @@ void calculate_mean(long nx, long ny, const double *count, const double *val, do
     }
 }
 
-
+// TODO: as above, why is this copy required to avoid getting the wrong shape?
 #define arr_to_np_long(arr, shape) \
 PyArray_Copy( \
     (PyArrayObject *) PyArray_SimpleNewFromData(1, shape, NPY_LONG, arr) \
