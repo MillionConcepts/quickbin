@@ -210,6 +210,29 @@ PyArray_ArgSort((PyArrayObject *) arr, 0, NPY_QUICKSORT)   \
 #define np_unique(arr) \
 PyObject_CallFunctionObjArgs(unique, arr, NULL);
 
+
+void free_wrap(void *capsule){
+    void * obj = PyCapsule_GetPointer(capsule, PyCapsule_GetName(capsule));
+    free(obj);
+};
+
+static void bind_array_destructor(PyObject *obj, void *mem, char *name) {
+    PyObject *capsule = PyCapsule_New(
+        mem, name, (PyCapsule_Destructor)&free_wrap
+    );
+    PyArray_SetBaseObject((PyArrayObject *) obj, capsule);
+}
+
+
+static void insert_output_array(
+    double *c_arr, long shape[1], PyObject *outdict, char *objname
+) {
+    PyObject *py_arr = np_array(1, shape, NPY_DOUBLE, c_arr);
+    bind_array_destructor(py_arr, (void *) c_arr, objname);
+    PyDict_SetItemString(outdict, objname, py_arr);
+    Py_SET_REFCNT(py_arr, 1);
+}
+
 static void np_to_arr(PyObject *np_obj, void *c_array) {
     PyArray_AsCArray(
         &np_obj,
@@ -248,11 +271,6 @@ static PyArrayObject *init_ndarray2d(
     PyArray_FILLWBYTE(arr2d, fill);
     return arr2d;
 }
-
-void free_wrap(void *capsule){
-    void * obj = PyCapsule_GetPointer(capsule, PyCapsule_GetName(capsule));
-    free(obj);
-};
 
 static PyObject* binned_count(
     PyArrayObject *arrs[2],
@@ -295,10 +313,7 @@ static PyObject* binned_sum(
     NDITER_END
     npy_intp outlen[1] = {nx * ny};
     PyObject *sumarr = np_array(1, outlen, NPY_DOUBLE, sum);
-    PyObject *sumcapsule = PyCapsule_New(
-        sum, "sum_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) sumarr, sumcapsule);
+    bind_array_destructor(sumarr, sum, "sum");
     return sumarr;
 }
 
@@ -323,36 +338,18 @@ static PyObject* binned_countvals(
         double tw = *(double *) iter.data[2];
         ASSIGN_COUNTSUM
     NDITER_END
-    npy_intp outlen[1] = {nx * ny};
+    npy_intp outshape[1] = {nx * ny};
     PyObject *output = PyDict_New();
     if (spec.mean == 1) {
         double (*mean)[nx * ny] = malloc(sizeof *mean);
         calculate_mean(nx, ny, *count, *sum, *mean);
-        PyObject *meanarr = np_array(1, outlen, NPY_DOUBLE, mean);
-        PyObject *meancapsule = PyCapsule_New(
-            mean, "mean_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) meanarr, meancapsule);
-        PyDict_SetItemString(output, "mean", meanarr);
-        Py_SET_REFCNT(meanarr, 1);
+        insert_output_array(*mean, outshape, output, "mean");
     }
     if (spec.sum == 1) {
-        PyObject *sumarr = np_array(1, outlen, NPY_DOUBLE, sum);
-        PyObject *sumcapsule = PyCapsule_New(
-            sum, "sum_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) sumarr, sumcapsule);
-        PyDict_SetItemString(output, "sum", sumarr);
-        Py_SET_REFCNT(sumarr, 1);
+        insert_output_array(*sum, outshape, output, "sum");
     } else free(sum);
     if (spec.count == 1) {
-        PyObject *countarr = np_array(1, outlen, NPY_DOUBLE, count);
-        PyObject *countcapsule = PyCapsule_New(
-            count, "count_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) countarr, countcapsule);
-        PyDict_SetItemString(output, "count", countarr);
-        Py_SET_REFCNT(countarr, 1);
+        insert_output_array(*count, outshape, output, "count");
     } else free(count);
     return output;
 }
@@ -392,44 +389,19 @@ static PyObject* binned_std(
         }
     }
     free(sqr);
-    npy_intp outlen[1] = {nx * ny};
-    PyObject *stdarr = np_array(1, outlen, NPY_DOUBLE, std);
-    PyObject *stdcapsule = PyCapsule_New(
-        std, "std_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) stdarr, stdcapsule);
+    npy_intp outshape[1] = {nx * ny};
     PyObject *output = PyDict_New();
-    PyDict_SetItemString(output, "std", stdarr);
-    Py_SET_REFCNT(stdarr, 1);
+    insert_output_array(*std, outshape, output, "std");
     if (spec.mean == 1) {
         double (*mean)[nx * ny] = malloc(sizeof *mean);
         calculate_mean(nx, ny, *count, *sum, *mean);
-        PyObject *meanarr = np_array(1, outlen, NPY_DOUBLE, mean);
-        PyObject *meancapsule = PyCapsule_New(
-            mean, "mean_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) meanarr, meancapsule);
-        PyDict_SetItemString(output, "mean", meanarr);
-        Py_SET_REFCNT(meanarr, 1);
+        insert_output_array(*mean, outshape, output, "mean");
     }
     if (spec.sum == 1) {
-        PyObject *sumarr = np_array(1, outlen, NPY_DOUBLE, sum);
-        PyObject *sumcapsule = PyCapsule_New(
-            sum, "sum_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) sumarr, sumcapsule);
-        PyDict_SetItemString(output, "sum", sumarr);
-        Py_SET_REFCNT(sumarr, 1);
-
+        insert_output_array(*sum, outshape, output, "sum");
     } else free(sum);
     if (spec.count == 1) {
-        PyObject *countarr = np_array(1, outlen, NPY_DOUBLE, count);
-        PyObject *countcapsule = PyCapsule_New(
-            count, "count_buf", (PyCapsule_Destructor)&free_wrap
-        );
-        PyArray_SetBaseObject((PyArrayObject *) countarr, countcapsule);
-        PyDict_SetItemString(output, "count", countarr);
-        Py_SET_REFCNT(countarr, 1);
+        insert_output_array(*count, outshape, output, "count");
     } else free(count);
     return output;
 }
@@ -468,22 +440,10 @@ static PyObject* binned_minmax(
         if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
         if ((*max)[i] == DBL_MIN) (*max)[i] = NAN;
     }
-    npy_intp outlen[1] = {nx * ny};
+    npy_intp outshape[1] = {nx * ny};
     PyObject *output = PyDict_New();
-    PyObject *minarr = np_array(1, outlen, NPY_DOUBLE, min);
-    PyObject *maxarr = np_array(1, outlen, NPY_DOUBLE, max);
-    PyObject *mincapsule = PyCapsule_New(
-        min, "min_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyObject *maxcapsule = PyCapsule_New(
-        max, "max_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) minarr, mincapsule);
-    PyArray_SetBaseObject((PyArrayObject *) maxarr, maxcapsule);
-    PyDict_SetItemString(output, "min", minarr);
-    PyDict_SetItemString(output, "max", maxarr);
-    Py_SET_REFCNT(minarr, 1);
-    Py_SET_REFCNT(maxarr, 1);
+    insert_output_array(*min, outshape, output, "min");
+    insert_output_array(*max, outshape, output, "max");
     return output;
 }
 
@@ -513,12 +473,9 @@ static PyObject* binned_min(
     for (long i = 0; i < nx * ny; i++) {
         if ((*min)[i] == DBL_MAX) (*min)[i] = NAN;
     }
-    npy_intp outlen[1] = {nx * ny};
-    PyObject *minarr = np_array(1, outlen, NPY_DOUBLE, min);
-    PyObject *mincapsule = PyCapsule_New(
-        min, "min_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) minarr, mincapsule);
+    npy_intp outshape[1] = {nx * ny};
+    PyObject *minarr = np_array(1, outshape, NPY_DOUBLE, min);
+    bind_array_destructor(minarr, (void *) min, "min");
     return minarr;
 }
 
@@ -549,10 +506,7 @@ static PyObject* binned_max(
     }
     npy_intp outlen[1] = {nx * ny};
     PyObject *maxarr = np_array(1, outlen, NPY_DOUBLE, max);
-    PyObject *maxcapsule = PyCapsule_New(
-        max, "max_buf", (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) maxarr, maxcapsule);
+    bind_array_destructor(maxarr, (void *) max, "max");
     return maxarr;
 }
 
@@ -649,11 +603,14 @@ static PyObject* binned_median(
         }
         free_all(3, match_buckets, match_count, xbin_indices);
     }
-    long shape[1] = {nx * ny};
-    PyObject *medarr = arr_to_np_double(medians, shape);
+    npy_intp shape[1] = {nx * ny};
+    PyObject *medarr = np_array(1, shape, NPY_DOUBLE, medians);
+    bind_array_destructor(medarr, (void *) medians, "median");
+    // note: not necessary to decrement references to these because
+    //  we're explicitly freeing their underlying memory and nothing outisde
+    //  of this routine knows about them
     free_all(3, xdig_sort, xdig, ydig);
     // np_to_arr steals references to arrs[2] and arrs[0]
-    decref_all(4, xdig_obj, xdig_sort_obj, arrs[2], arrs[0]);
     return medarr;
 }
 
