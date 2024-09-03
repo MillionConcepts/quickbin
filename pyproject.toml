@@ -2,14 +2,16 @@
 name        = "quickbin"
 version     = "0.0.1a0"
 
-requires-python = ">=3.11"
-dependencies = [
-    "numpy",
-]
+requires-python = ">=3.10"
+dependencies = ["numpy"]
 
 [build-system]
 requires = ["setuptools", "numpy"]
 build-backend = "setuptools.build_meta"
+
+[project.optional-dependencies]
+tests = ["fast-histogram", "psutil", "pytest", "scipy"]
+benchmark = ["fast-histogram", "fire", "psutil", "scipy"]
 
 [tool.setuptools]
 packages = ["quickbin"]

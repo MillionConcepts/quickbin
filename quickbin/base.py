@@ -38,7 +38,14 @@ def bin2d(
 ):
     arrs = [x_arr, y_arr, val_arr]
     for i, arr in enumerate(arrs):
-        if arr.dtype != np.float64:
+        if arr is None:
+            if i != 2:
+                raise TypeError("x and y arrays may not be none")
+            elif op != 'count':
+                raise TypeError("val array may only be none for count op")
+            else:
+                arrs[i] = np.array([])
+        elif arr.dtype != np.float64:
             arrs[i] = arr.astype(np.float64)
     if not isinstance(n_bins, Sequence):
         n_bins = [n_bins, n_bins]

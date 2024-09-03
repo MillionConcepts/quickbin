@@ -551,7 +551,7 @@ static PyObject* binned_median(
     if (xdig_uniq_obj == NULL) return NULL;
     long nx_uniq = PyArray_SIZE((PyArrayObject *) xdig_uniq_obj);
     np_to_arr(xdig_uniq_obj, &xdig_uniq);
-    decref_all(4, xdig_obj, xdig_uniq_obj, unique, numpy);
+    decref_all(5, xdig_obj, xdig_uniq_obj, xdig_sort_obj, unique, numpy);
     double *vals;
     np_to_arr((PyObject *) arrs[2], &vals);
     long x_sort_ix = 0;
@@ -575,7 +575,10 @@ static PyObject* binned_median(
             x_sort_ix += 1;
             if ((*xdig)[xdig_sort[x_sort_ix]] != xbin) break;
         }
-        if (xbin_elcount == 0) continue;
+        if (xbin_elcount == 0) {
+            free(xbin_indices);
+            continue;
+        }
         long (*match_buckets)[ny][xbin_elcount] = malloc(sizeof *match_buckets);
         long (*match_count)[ny] = malloc(sizeof *match_count);
         for (long i = 0; i < ny; i++) (*match_count)[i] = 0;
@@ -606,11 +609,10 @@ static PyObject* binned_median(
     npy_intp shape[1] = {nx * ny};
     PyObject *medarr = np_array(1, shape, NPY_DOUBLE, medians);
     bind_array_destructor(medarr, (void *) medians, "median");
-    // note: not necessary to decrement references to these because
-    //  we're explicitly freeing their underlying memory and nothing outisde
-    //  of this routine knows about them
-    free_all(3, xdig_sort, xdig, ydig);
-    // np_to_arr steals references to arrs[2] and arrs[0]
+    free_all(4, xdig_sort, xdig, ydig, xdig_uniq);
+    // np_to_arr creates strong references to these
+    Py_DECREF((PyObject*) arrs[0]);
+    Py_DECREF((PyObject*) arrs[2]);
     return medarr;
 }
 

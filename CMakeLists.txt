@@ -1,3 +1,9 @@
+# note that as of right now, this is only used for
+# debugging. setup() in setup.py is not aware of it,
+# and i don't know if it would be better to make it so,
+# or if thes native setuptools configuration is better,
+# or what.
+
 cmake_minimum_required(VERSION 3.26)
 project(quickbin C)
 set(CMAKE_C_STANDARD 11)
