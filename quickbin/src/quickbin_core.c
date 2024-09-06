@@ -680,7 +680,8 @@ genhist(PyObject *self, PyObject *args) {
 //        pyraise(TypeError, "vals may only be None for 'count'")
 //    }
     if (check_opmask(opmask) != true) return NULL;
-    PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long, long);
+    PyObject* (*binfunc)
+    (PyArrayObject**, const double*, const double*, const long, const long, const long);
     if (opneeds(opmask, "std")) binfunc = binned_std;
     else if (
         (opneeds(opmask, "mean"))
