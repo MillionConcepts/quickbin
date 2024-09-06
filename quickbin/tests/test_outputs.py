@@ -1,5 +1,7 @@
 import gc
-from itertools import product
+from functools import partial, reduce
+from itertools import chain, combinations, product
+from operator import and_
 import time
 
 import numpy as np
@@ -10,44 +12,71 @@ from quickbin import bin2d
 from quickbin.base import OPS
 
 N_TILE_OPTIONS = np.arange(50, 250, 50)
-TILESIZE_OPTIONS = np.arange(50, 10050, 1000)
+TILESIZE_OPTIONS = np.arange(50, 10050, 2000)
+
 
 RNG = np.random.default_rng()
+COUNTSUM_OPS = ("count", "sum", "mean", "std")
+VALID_COMBOS = tuple(
+    chain(*[combinations(COUNTSUM_OPS, i) for i in range(2, 5)])
+)
 
 
 # TODO: more
 
-def _simpletest(n_tiles, op, tilesize):
-    # TODO: these tiles don't need to be identical
+def _check_against_tile(res, flipres, tile, op):
+    if op in ("median", "mean", "std", "sum", "min", "max"):
+        close = partial(np.allclose, b=getattr(np, op)(tile))
+        val = getattr(np, op)(tile)
+    elif op == "count":
+        close = partial(np.allclose, b=tile.size)
+    else:
+        raise ValueError(f"unknown test operation {op}")
+    return reduce(
+        and_, map(close, map(np.diag, (res, np.flip(flipres, axis=1))))
+    )
+
+
+def _make_test_tiles(n_tiles, tilesize):
+    # TODO: non-identical tiles
     tile = (RNG.random(tilesize) - 0.5) * RNG.integers(1, 10) ** 10
     tiled = np.tile(tile, n_tiles)
     axchunk = np.arange(0, n_tiles, dtype='f8')
     ax = np.repeat(axchunk, tilesize)
+    return ax, tile, tiled
+
+
+def _simpletest(n_tiles, op, tilesize):
+    ax, tile, tiled = _make_test_tiles(n_tiles, tilesize)
     res = bin2d(ax, ax, tiled, op, n_tiles)
     flipres = bin2d(ax, np.flip(ax), tiled, op, n_tiles)
-    if op in ("median", "mean", "std", "sum", "min", "max"):
-        compfunc = getattr(np, op)
-    elif op == "count":
-        compfunc = lambda k: k.size
-    else:
-        raise ValueError(f"unknown test operation {op}")
-    try:
-        assert (np.diag(res) == compfunc(tile)).all()
-        assert (np.diag(np.flip(flipres, axis=1)) == compfunc(tile)).all()
-    except AssertionError:
-        return False
-    return True
+    return bool(_check_against_tile(res, flipres, tile, op))
 
 
 # TODO: replace / supplement this stuff with hypothesize
-@pytest.mark.parametrize("op", OPS.keys())
+
+@pytest.mark.parametrize("op", OPS)
 def test_op_simple(op):
-    results = []
+    results = [
+        _simpletest(n_tiles, op, tilesize)
+        for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS)
+    ]
+    if len(failed := tuple(filter(lambda r: r is False, results))) > 0:
+        raise ValueError(f"{len(failed)} failed value comparisons")
+
+
+@pytest.mark.parametrize("ops", VALID_COMBOS)
+def test_op_combo(ops):
+    n_failed = 0
     for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS):
-        results.append(_simpletest(n_tiles, op, tilesize))
-    failures = tuple(filter(lambda r: None, results))
-    if len(failures) > 0:
-        raise ValueError(f"{len(failures)} failed value comparisons")
+        ax, tile, tiled = _make_test_tiles(n_tiles, tilesize)
+        res = bin2d(ax, ax, tiled, ops, n_tiles)
+        flipres = bin2d(ax, np.flip(ax), tiled, ops, n_tiles)
+        for op in ops:
+            if _check_against_tile(res[op], flipres[op], tile, op) is False:
+                n_failed += 1
+    if n_failed > 0:
+        raise ValueError(f"{n_failed} failed value comparisons")
 
 
 # The following may be too crude / non-portable an idea to work at all, and is
