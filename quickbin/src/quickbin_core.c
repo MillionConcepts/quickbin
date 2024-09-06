@@ -123,16 +123,6 @@ hist_index(const Iterface *iter, const Histspace *space, long indices[static 2])
     indices[1] = iy;
 }
 
-#define START_VARARG_ITERATION \
-va_list args; \
-va_start(args, n); \
-for (int i = 0; i < n; i++) {
-
-#define END_VARARG_ITERATION \
-}                   \
-va_end(args);
-
-
 static void
 free_all(int n, void **ptrs) {
     for (int i = 0; i < n; i++) free(ptrs[i]);
@@ -188,7 +178,6 @@ doublecomp(const void *a, const void *b) {
 
 #define ValueError PyExc_ValueError
 #define TypeError PyExc_TypeError
-#define np_array PyArray_SimpleNewFromData
 
 #define pyraise(exc_class, msg) \
     PyErr_SetString(exc_class, msg); \
@@ -211,18 +200,6 @@ assign_countsum(double *count, double *sum, long index, double val) {
    free(c_array);                                \
 }
 
-static void
-free_wrap(void *capsule){
-    void * obj = PyCapsule_GetPointer(capsule, PyCapsule_GetName(capsule));
-    free(obj);
-};
-
-static void bind_array_destructor(PyObject *obj, void *mem, char *name) {
-    PyObject *capsule = PyCapsule_New(
-        mem, name, (PyCapsule_Destructor)&free_wrap
-    );
-    PyArray_SetBaseObject((PyArrayObject *) obj, capsule);
-}
 
 static void
 setitem_for_output(void *whatever, PyObject *outdict, char *objname) {
