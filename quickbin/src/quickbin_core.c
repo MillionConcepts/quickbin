@@ -38,7 +38,7 @@ Iterface {
 
 
 static bool
-make_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
+make_iterface(Iterface *iter, PyArrayObject *arrays[static 2], int n_arrays) {
     PyArray_Descr* dtypes[n_arrays];
     npy_uint32 op_flags[n_arrays];
     for (int i = 0; i < n_arrays; i++) {
@@ -86,7 +86,8 @@ Histspace {
 
 static void
 make_histspace(
-    Histspace *space, const double xbounds[2], const double ybounds[2],
+    Histspace *space,
+    const double xbounds[static 2], const double ybounds[static 2],
     const long nx, const long ny
 ) {
     space->xscl = (double) nx / (xbounds[1] - xbounds[0]);
@@ -150,7 +151,7 @@ decref_arrays(long n_arrays, PyArrayObject** arrays) {
 }
 
 static char
-check_arrs(PyArrayObject *arrays[], long n_arrays) {
+check_arrs(PyArrayObject *arrays[static 2], long n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
     for (long i = 0; i < n_arrays; i++) {
         if (arrays[i] == NULL) {
@@ -312,9 +313,9 @@ for_nditer_step_count(
 
 static PyObject*
 binned_count(
-    PyArrayObject *arrs[2],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 2],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
@@ -334,9 +335,9 @@ binned_count(
 
 static PyObject*
 binned_sum(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
@@ -356,9 +357,9 @@ binned_sum(
 
 static PyObject*
 binned_countvals(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long opmask
@@ -391,9 +392,9 @@ binned_countvals(
 
 static PyObject*
 binned_std(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long opmask
@@ -435,9 +436,9 @@ binned_std(
 
 static PyObject*
 binned_minmax(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
@@ -480,9 +481,9 @@ binned_minmax(
 
 static PyObject*
 binned_min(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
@@ -512,9 +513,9 @@ binned_min(
 
 static PyObject*
 binned_max(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
@@ -545,9 +546,9 @@ binned_max(
 
 static PyObject*
 binned_median(
-    PyArrayObject *arrs[3],
-    const double xbounds[2],
-    const double ybounds[2],
+    PyArrayObject *arrs[static 3],
+    const double xbounds[static 2],
+    const double ybounds[static 2],
     const long nx,
     const long ny,
     const long _ignored
