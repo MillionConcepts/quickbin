@@ -1,27 +1,15 @@
-from enum import Enum
 from numbers import Integral, Number
 import signal
-from types import MappingProxyType as MPt
 from typing import Literal, Optional, Sequence, Union
 
 import numpy as np
 
+from quickbin.definitions import OPS
 from quickbin._quickbin_core import genhist
 
 INTERRUPTS_RECEIVED = []
 
 
-# TODO: find a way to share an object between this and the C module
-class Ops(Enum):
-    count = 2
-    sum = 4
-    mean = 8
-    std = 16
-    median = 32
-    min = 64
-    max = 128
-
-OPS = MPt(Ops.__members__)
 OpName = Literal["count", "sum", "mean", "std", "median", "min", "max"]
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 

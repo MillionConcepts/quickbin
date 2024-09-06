@@ -4,29 +4,29 @@
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
 
-typedef struct ReturnSpec {
-    int count;
-    int sum;
-    int mean;
-    int std;
-    int median;
-    int min;
-    int max;
-} ReturnSpec;
+// TODO: is there a less gross way to load this global
+PyObject *op_enum;
 
-static ReturnSpec
-init_returnspec(int opmask, ReturnSpec *spec) {
-    (*spec).count = (opmask & 2) > 0;
-    (*spec).sum = (opmask & 4) > 0;
-    (*spec).mean = (opmask & 8) > 0;
-    (*spec).std = (opmask & 16) > 0;
-    (*spec).median = (opmask & 32) > 0;
-    (*spec).min = (opmask & 64) > 0;
-    (*spec).max = (opmask & 128) > 0;
-    return (*spec);
+static void
+load_op_enum() {
+    PyObject *definitions = PyImport_ImportModule("quickbin.definitions");
+    op_enum = PyObject_GetAttrString(definitions, "Ops");
 }
 
-typedef struct Iterface {
+static inline long
+opval(char *name) {
+    return PyLong_AsLong(
+        PyObject_GetAttrString(PyObject_GetAttrString(op_enum, name), "value")
+    );
+}
+
+static inline bool
+opneeds(long opmask, char *name) {
+    return (opmask & opval(name)) != 0;
+}
+
+typedef struct
+Iterface {
     NpyIter *iter;
     NpyIter_IterNextFunc *iternext;
     char **data;
@@ -73,7 +73,8 @@ stride(Iterface *iter) {
     for (int i = 0; i < iter->n; i++) iter->data[i] += iter->stride[i];
 }
 
-typedef struct Histspace {
+typedef struct
+Histspace {
     double xscl;
     double yscl;
     double xmin;
@@ -195,12 +196,6 @@ assign_countsum(double *count, double *sum, long index, double val) {
 #define np_unique(arr) \
     PyObject_CallFunctionObjArgs(unique, arr, NULL);
 
-#define totally_remove_array(ndarray, c_array) { \
-   Py_SET_REFCNT(ndarray, 0);                    \
-   free(c_array);                                \
-}
-
-
 static void
 setitem_for_output(void *whatever, PyObject *outdict, char *objname) {
     PyObject *py_obj = (PyObject *) whatever;
@@ -313,7 +308,7 @@ binned_count(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
 ) {
     Iterface iter;
     Histspace space;
@@ -335,7 +330,7 @@ binned_sum(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
 ) {
     Iterface iter;
     Histspace space;
@@ -357,7 +352,7 @@ binned_countvals(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec spec
+    long opmask
 ) {
     Iterface iter;
     Histspace space;
@@ -372,16 +367,16 @@ binned_countvals(
         assign_countsum(count, sum, indices[1] + indices[0] * ny, val);
     }
     PyObject *outdict = PyDict_New();
-    if (spec.mean == 1) {
+    if (opneeds(opmask, "mean")) {
         PyArrayObject *meanarr = init_ndarray1d(nx * ny, NPY_DOUBLE, 0);
         double *mean = (double *) PyArray_DATA(meanarr);
         populate_meanarr(nx * ny, count, sum, mean);
         setitem_for_output(meanarr, outdict, "mean");
     }
-    if (spec.sum == 1) setitem_for_output(sumarr, outdict, "sum");
-    else totally_remove_array(sumarr, sum);
-    if (spec.count == 1) setitem_for_output(countarr, outdict, "count");
-    else totally_remove_array(countarr, count);
+    if (opneeds(opmask, "sum")) setitem_for_output(sumarr, outdict, "sum");
+    else Py_SET_REFCNT(sumarr, 0);
+    if (opneeds(opmask, "count")) setitem_for_output(countarr, outdict, "count");
+    else Py_SET_REFCNT(countarr, 0);
     return outdict;
 }
 
@@ -392,7 +387,7 @@ binned_std(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec spec
+    long opmask
 ) {
     Iterface iter;
     Histspace space;
@@ -416,16 +411,16 @@ binned_std(
     free(sqr);
     PyObject *outdict = PyDict_New();
     setitem_for_output(stdarr, outdict, "std");
-    if (spec.mean == 1) {
+    if (opneeds(opmask, "mean")) {
         PyArrayObject *meanarr = init_ndarray1d(nx * ny, NPY_DOUBLE, 0);
         double *mean = (double *) PyArray_DATA(meanarr);
         populate_meanarr(nx * ny, count, sum, mean);
         setitem_for_output(meanarr, outdict, "mean");
     }
-    if (spec.sum == 1) setitem_for_output(sumarr, outdict, "sum");
-    else totally_remove_array(sumarr, sum);
-    if (spec.count == 1) setitem_for_output(countarr, outdict, "count");
-    else totally_remove_array(countarr, count);
+    if (opneeds(opmask, "sum")) setitem_for_output(sumarr, outdict, "sum");
+    else Py_SET_REFCNT(sumarr, 0);
+    if (opneeds(opmask, "count")) setitem_for_output(countarr, outdict, "count");
+    else Py_SET_REFCNT(countarr, 0);
     return outdict;
 }
 
@@ -436,7 +431,7 @@ binned_minmax(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
     // this feels _painfully_ repetitive with binned_min() and binned_max()
 ) {
     Iterface iter;
@@ -481,7 +476,7 @@ binned_min(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
     // this feels _painfully_ repetitive with binned_max()
 ) {
     Iterface iter;
@@ -513,7 +508,7 @@ binned_max(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
     // this feels _painfully_ repetitive with binned_min()
 ) {
     Iterface iter;
@@ -546,7 +541,7 @@ binned_median(
     double ybounds[2],
     long nx,
     long ny,
-    ReturnSpec _ignored
+    long _ignored
 ) {
     // TODO: there may be unnecessary copies happening here
     PyObject *numpy = PyImport_ImportModule("numpy");
@@ -636,46 +631,58 @@ binned_median(
     return (PyObject *) medarr;
 }
 
+static bool
+check_opmask(long opmask) {
+    if ((opmask <= 0) || (opmask > 255)) {
+        pyraise(ValueError, "op bitmask out of range")
+    }
+    if (opneeds(opmask, "median") && (opmask != opval("median"))) {
+        pyraise(ValueError, "median can only be computed alone");
+    }
+    if (
+        (opneeds(opmask, "max") || opneeds(opmask, "min"))
+        && !(
+            opmask == opval("max")
+            || opmask == opval("min")
+            || opmask == opval("min") + opval("max")
+        )
+    ) {
+        pyraise(ValueError, "min/max cannot be computed with non-min/max stats")
+    }
+    return true;
+}
+
 static PyObject*
 genhist(PyObject *self, PyObject *args) {
-    long nx, ny;
-    int opmask;
+    load_op_enum();
+    long nx, ny, opmask;
     double xmin, xmax, ymin, ymax;
     PyObject *x_arg, *y_arg, *val_arg;
     if (
-        !PyArg_ParseTuple(args, "OOOddddlli",
+        !PyArg_ParseTuple(args, "OOOddddlll",
         &x_arg, &y_arg, &val_arg, &xmin, &xmax,
         &ymin, &ymax, &nx, &ny, &opmask)
     ) {
         pyraise(TypeError, "Bad argument list")
     }
-    // TODO: there must be a cleaner way to do this, right?
-    if (Py_IsNone(val_arg) && opmask != 1) {
-        pyraise(TypeError, "vals may only be None for 'count'")
-    }
-    if ((opmask <= 0) | (opmask > 255)) {
-        pyraise(ValueError, "op bitmask out of range")
-    }
-    // TODO: this is so gross
-    ReturnSpec spec;
-    spec = init_returnspec(opmask, &spec);
-    if ((spec.median == 1) && (opmask != 32)) {
-        pyraise(ValueError, "median can only be computed alone");
-    }
-    if ((opmask >= 64) && (opmask % 64 != 0)) {
-        pyraise(ValueError, "min/max cannot be computed with non-min/max stats")
-    }
-    PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long, ReturnSpec);
-    if (spec.std == 1) binfunc = binned_std;
-    else if ((spec.mean == 1) || (spec.count + spec.sum == 2)) {
-        binfunc = binned_countvals;
-    }
-    else if (spec.sum == 1) binfunc = binned_sum;
-    else if (spec.count == 1) binfunc = binned_count;
-    else if ((spec.min + spec.max) == 2) binfunc = binned_minmax;
-    else if (spec.min == 1) binfunc = binned_min;
-    else if (spec.max == 1) binfunc = binned_max;
-    else if (spec.median == 1) binfunc = binned_median;
+    // TODO: can't actually pass None! PyArg_ParseTuple won't treat None as 'O'.
+    //  you need some special handling. so we have to pack it into a tuple or something.
+//    if (Py_IsNone(val_arg) && opmask != opval("count")) {
+//        pyraise(TypeError, "vals may only be None for 'count'")
+//    }
+    if (check_opmask(opmask) != true) return NULL;
+    PyObject* (*binfunc)(PyArrayObject**, double*, double*, long, long, long);
+    if (opneeds(opmask, "std")) binfunc = binned_std;
+    else if (
+        (opneeds(opmask, "mean"))
+        || (opneeds(opmask, "count") & opneeds(opmask, "sum"))
+    ) binfunc = binned_countvals;
+    else if (opneeds(opmask, "sum")) binfunc = binned_sum;
+    else if (opneeds(opmask, "count")) binfunc = binned_count;
+    else if (opneeds(opmask, "min") && opneeds(opmask, "max")) binfunc = binned_minmax;
+    else if (opneeds(opmask, "min")) binfunc = binned_min;
+    else if (opneeds(opmask, "max")) binfunc = binned_max;
+    else if (opneeds(opmask, "median")) binfunc = binned_median;
     else {
         pyraise(ValueError, "Unclassified bad op specification")
     }
@@ -698,7 +705,7 @@ genhist(PyObject *self, PyObject *args) {
     }
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
-    PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny, spec);
+    PyObject *binned_arr = binfunc(arrays, xbounds, ybounds, nx, ny, opmask);
     decref_arrays(n_arrs, arrays);
     if (binned_arr == NULL) {
         if (PyErr_Occurred() == NULL) {
