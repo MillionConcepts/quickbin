@@ -231,7 +231,7 @@ populate_stdarr(
 
 static PyArrayObject*
 init_ndarray2d(
-    npy_intp *dims, npy_intp dtype, npy_intp fill
+    const npy_intp *dims, const npy_intp dtype, const npy_intp fill
 ) {
     PyArrayObject *arr2d = (PyArrayObject *) PyArray_SimpleNew(2, dims, dtype);
     PyArray_FILLWBYTE(arr2d, fill);
@@ -239,7 +239,7 @@ init_ndarray2d(
 }
 
 static PyArrayObject*
-init_ndarray1d(npy_intp size, npy_intp dtype, npy_intp fill) {
+init_ndarray1d(const npy_intp size, const npy_intp dtype, const npy_intp fill) {
     PyArrayObject *arr1d =
         (PyArrayObject *) PyArray_SimpleNew(1, (npy_intp []){size}, dtype);
     PyArray_FILLWBYTE(arr1d, fill);
@@ -247,7 +247,12 @@ init_ndarray1d(npy_intp size, npy_intp dtype, npy_intp fill) {
 }
 
 static inline bool
-for_nditer_step(long indices[static 2], Iterface *iter, const Histspace *space, double *val) {
+for_nditer_step(
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space,
+    double *val
+) {
     while (iter->size == 0) {
         // A little kludge:
         // if indices[] == { -1, -1 , -1}, then we are before the very first
@@ -279,7 +284,11 @@ for_nditer_step(long indices[static 2], Iterface *iter, const Histspace *space, 
 //  a cleaner way to do this.
 
 static inline bool
-for_nditer_step_count(long indices[static 2], Iterface *iter, const Histspace *space) {
+for_nditer_step_count(
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space
+) {
     while (iter->size == 0) {
         if (indices[0] == -1 && indices[1] == -1) {
             indices[1] = 0;
@@ -304,11 +313,11 @@ for_nditer_step_count(long indices[static 2], Iterface *iter, const Histspace *s
 static PyObject*
 binned_count(
     PyArrayObject *arrs[2],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
 ) {
     Iterface iter;
     Histspace space;
@@ -326,11 +335,11 @@ binned_count(
 static PyObject*
 binned_sum(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
 ) {
     Iterface iter;
     Histspace space;
@@ -348,11 +357,11 @@ binned_sum(
 static PyObject*
 binned_countvals(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long opmask
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long opmask
 ) {
     Iterface iter;
     Histspace space;
@@ -383,11 +392,11 @@ binned_countvals(
 static PyObject*
 binned_std(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long opmask
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long opmask
 ) {
     Iterface iter;
     Histspace space;
@@ -427,11 +436,11 @@ binned_std(
 static PyObject*
 binned_minmax(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
     // this feels _painfully_ repetitive with binned_min() and binned_max()
 ) {
     Iterface iter;
@@ -472,11 +481,11 @@ binned_minmax(
 static PyObject*
 binned_min(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
     // this feels _painfully_ repetitive with binned_max()
 ) {
     Iterface iter;
@@ -504,11 +513,11 @@ binned_min(
 static PyObject*
 binned_max(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
     // this feels _painfully_ repetitive with binned_min()
 ) {
     Iterface iter;
@@ -537,11 +546,11 @@ binned_max(
 static PyObject*
 binned_median(
     PyArrayObject *arrs[3],
-    double xbounds[2],
-    double ybounds[2],
-    long nx,
-    long ny,
-    long _ignored
+    const double xbounds[2],
+    const double ybounds[2],
+    const long nx,
+    const long ny,
+    const long _ignored
 ) {
     // TODO: there may be unnecessary copies happening here
     PyObject *numpy = PyImport_ImportModule("numpy");
@@ -632,7 +641,7 @@ binned_median(
 }
 
 static bool
-check_opmask(long opmask) {
+check_opmask(const long opmask) {
     if ((opmask <= 0) || (opmask > 255)) {
         pyraise(ValueError, "op bitmask out of range")
     }
