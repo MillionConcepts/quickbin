@@ -685,7 +685,7 @@ genhist(PyObject *self, PyObject *args) {
     if (opneeds(opmask, "std")) binfunc = binned_std;
     else if (
         (opneeds(opmask, "mean"))
-        || (opneeds(opmask, "count") & opneeds(opmask, "sum"))
+        || (opneeds(opmask, "count") && opneeds(opmask, "sum"))
     ) binfunc = binned_countvals;
     else if (opneeds(opmask, "sum")) binfunc = binned_sum;
     else if (opneeds(opmask, "count")) binfunc = binned_count;
