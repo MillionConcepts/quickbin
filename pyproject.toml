@@ -1,6 +1,6 @@
 [project]
 name        = "quickbin"
-version     = "0.0.1a0"
+version     = "0.0.2a0"
 
 requires-python = ">=3.10"
 dependencies = ["numpy"]
