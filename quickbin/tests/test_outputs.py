@@ -22,35 +22,38 @@ VALID_COMBOS = tuple(
 )
 
 
-# TODO: more
-
-def _check_against_tile(res, flipres, tile, op):
+def _check_against_tiles(res, xix, yix, tiles, op):
     if op in ("median", "mean", "std", "sum", "min", "max"):
-        close = partial(np.allclose, b=getattr(np, op)(tile))
-        val = getattr(np, op)(tile)
+        stack = np.hstack([getattr(np, op)(t) for t in tiles])
     elif op == "count":
-        close = partial(np.allclose, b=tile.size)
+        stack = np.hstack(np.full(len(tiles), len(tiles[0])))
     else:
         raise ValueError(f"unknown test operation {op}")
-    return reduce(
-        and_, map(close, map(np.diag, (res, np.flip(flipres, axis=1))))
-    )
+    return np.allclose(res[xix, yix], stack)
 
 
 def _make_test_tiles(n_tiles, tilesize):
     # TODO: non-identical tiles
-    tile = (RNG.random(tilesize) - 0.5) * RNG.integers(1, 10) ** 10
-    tiled = np.tile(tile, n_tiles)
-    axchunk = np.arange(0, n_tiles, dtype='f8')
-    ax = np.repeat(axchunk, tilesize)
-    return ax, tile, tiled
+    tiles = [
+        (RNG.random(tilesize) - 0.5) * RNG.integers(1, 10) ** 10
+        for _ in range(n_tiles)
+    ]
+    xix, yix = np.arange(0, n_tiles), np.arange(0, n_tiles)
+    np.random.shuffle(xix)
+    np.random.shuffle(yix)
+    return xix, yix, tiles
 
 
 def _simpletest(n_tiles, op, tilesize):
-    ax, tile, tiled = _make_test_tiles(n_tiles, tilesize)
-    res = bin2d(ax, ax, tiled, op, n_tiles)
-    flipres = bin2d(ax, np.flip(ax), tiled, op, n_tiles)
-    return bool(_check_against_tile(res, flipres, tile, op))
+    xix, yix, tiles = _make_test_tiles(n_tiles, tilesize)
+    res = bin2d(
+        np.repeat(xix, tilesize),
+        np.repeat(yix, tilesize),
+        np.hstack(tiles),
+        op,
+        n_tiles
+    )
+    return bool(_check_against_tiles(res, xix, yix, tiles, op))
 
 
 # TODO: replace / supplement this stuff with hypothesize
@@ -69,11 +72,16 @@ def test_op_simple(op):
 def test_op_combo(ops):
     n_failed = 0
     for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS):
-        ax, tile, tiled = _make_test_tiles(n_tiles, tilesize)
-        res = bin2d(ax, ax, tiled, ops, n_tiles)
-        flipres = bin2d(ax, np.flip(ax), tiled, ops, n_tiles)
+        xix, yix, tiles = _make_test_tiles(n_tiles, tilesize)
+        res = bin2d(
+            np.repeat(xix, tilesize),
+            np.repeat(yix, tilesize),
+            np.hstack(tiles),
+            ops,
+            n_tiles
+        )
         for op in ops:
-            if _check_against_tile(res[op], flipres[op], tile, op) is False:
+            if _check_against_tiles(res[op], xix, yix, tiles, op) is False:
                 n_failed += 1
     if n_failed > 0:
         raise ValueError(f"{n_failed} failed value comparisons")
