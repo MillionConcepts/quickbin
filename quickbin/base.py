@@ -30,9 +30,7 @@ def bin2d(
             if i != 2:
                 raise TypeError("x and y arrays may not be none")
             elif op != 'count':
-                raise TypeError("val array may only be none for count op")
-            else:
-                arrs[i] = np.array([])
+                raise TypeError("val array may only be none for 'count'")
         elif arr.dtype != np.float64:
             arrs[i] = arr.astype(np.float64)
     if not isinstance(n_bins, Sequence):
@@ -76,10 +74,11 @@ def bin2d(
             raise KeyboardInterrupt
 
         return interrupter
+
     oparg = sum(OPS[o].value for o in map(str.lower, ops))
     try:
         signal.signal(signal.SIGINT, make_interrupter())
-        res = genhist(*arrs, *ranges, *n_bins, oparg)
+        res = genhist(arrs, *ranges, *n_bins, oparg)
         if isinstance(res, np.ndarray):
             return res.reshape(n_bins)
         elif len(res) == 1:

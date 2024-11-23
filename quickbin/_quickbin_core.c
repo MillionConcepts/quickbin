@@ -280,7 +280,8 @@ for_nditer_step(
         // A little kludge:
         // if indices[] == { -1, -1 , -1}, then we are before the very first
         // iteration and we should *not* call iternext.
-        // NOTE: it is possible for *iter->sizep to be zero, hence the while loop.
+        // NOTE: it is possible for *iter->sizep to be zero, hence the
+        // while loop.
         if (indices[0] == -1 && indices[1] == -1) {
             indices[1] = 0;
         } else if (!iter->iternext(iter->iter)) {
@@ -690,21 +691,26 @@ genhist(PyObject *self, PyObject *args) {
     load_op_enum();
     long nx, ny, long_mask;
     double xmin, xmax, ymin, ymax;
-    PyObject *x_arg, *y_arg, *val_arg;
+    PyObject *x_y_val_tuple;
     if (
-        !PyArg_ParseTuple(args, "OOOddddlll",
-        &x_arg, &y_arg, &val_arg, &xmin, &xmax,
+        !PyArg_ParseTuple(args, "Oddddlll",
+        &x_y_val_tuple, &xmin, &xmax,
         &ymin, &ymax, &nx, &ny, &long_mask)
     ) {
         PYRAISE(TypeError, "Bad argument list")
     }
-    // TODO: can't actually pass None! PyArg_ParseTuple won't treat None as 'O'.
-    //  you need some special handling. so we have to pack it into a tuple or something.
-//    if (Py_IsNone(val_arg) && opmask != opval("count")) {
-//        PYRAISE(TypeError, "vals may only be None for 'count'")
-//    }
     const int opmask = (int) long_mask;
-    if (check_opmask(opmask) != true) return NULL;
+    if (check_opmask(opmask) != true) {
+        PYRAISE(ValueError, "Invalid operation");
+    }
+    // NOTE: doing this silly-looking thing because PyArg_ParseTuple
+    //  will not interpret python None as 'O'
+    PyObject *x_arg = PyList_GetItem(x_y_val_tuple, 0);
+    PyObject *y_arg = PyList_GetItem(x_y_val_tuple, 1);
+    PyObject *val_arg = PyList_GetItem(x_y_val_tuple, 2);
+    if (Py_IsNone(val_arg) && opmask != opval("count")) {
+        PYRAISE(TypeError, "vals may only be None for 'count'")
+    }
     BINFUNC binfunc;
     if (inmask("std", opmask)) binfunc = binned_std;
     else if (
