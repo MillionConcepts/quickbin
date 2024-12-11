@@ -1,18 +1,19 @@
 from numbers import Integral, Number
 import signal
+from types import new_class
 from typing import Literal, Optional, Sequence, Union
+from enum import Flag
 
 import numpy as np
 
-from quickbin.definitions import OPS
-from quickbin._quickbin_core import genhist
+from quickbin._quickbin_core import genhist, OPS
 
-INTERRUPTS_RECEIVED = []
+OpName = Literal[tuple(OPS.keys())]
+Ops = new_class("Ops", bases=(Flag,), exec_body=lambda ns: ns.update(OPS))
 
-
-OpName = Literal["count", "sum", "mean", "std", "median", "min", "max"]
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 
+INTERRUPTS_RECEIVED = []
 
 def bin2d(
     x_arr: np.ndarray,
@@ -75,7 +76,7 @@ def bin2d(
 
         return interrupter
 
-    oparg = sum(OPS[o].value for o in map(str.lower, ops))
+    oparg = sum(OPS[o] for o in map(str.lower, ops))
     try:
         signal.signal(signal.SIGINT, make_interrupter())
         res = genhist(arrs, *ranges, *n_bins, oparg)
