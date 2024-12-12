@@ -138,15 +138,6 @@ binned_sum(PyObject *self, PyObject *args) {
     Iterface iter;
     Histspace space;
     PyArrayObject *arrs[3];
-    const char *typeName = Py_TYPE(xarg)->tp_name;
-    printf("xarg is a %s\n\n\n", typeName);
-    typeName = Py_TYPE(yarg)->tp_name;
-    printf("yarg is a %s\n\n\n", typeName);
-    typeName = Py_TYPE(varg)->tp_name;
-    printf("varg is a %s\n\n\n", typeName);
-    typeName = Py_TYPE(sumarg)->tp_name;
-    printf("sumarg is a %s\n\n\n", typeName);
-    PyErr_SetString(ValueError, "Suck it, loser\n\n\n");
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );
