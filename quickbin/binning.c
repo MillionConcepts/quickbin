@@ -113,7 +113,7 @@ binned_count(PyObject *self, PyObject *args)
     ) { return NULL; } // PyArg_ParseTuple has set an exception
     Iterface iter;
     Histspace space;
-    PyObject *arrs[3];
+    PyArrayObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, NULL, arrs,
         2, &iter, &space
@@ -171,7 +171,7 @@ binned_countvals(PyObject *self, PyObject *args) {
       &nx, &ny, &opmask)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyObject *arrs[3];
+    PyArrayObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );
@@ -337,7 +337,7 @@ binned_median(PyObject *self, PyObject *args) {
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyObject *arrs[3];
+    PyArrayObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );
