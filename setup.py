@@ -2,9 +2,16 @@ from setuptools import Extension, setup
 
 import numpy as np
 
-_quickbin_core = Extension("quickbin._quickbin_core", sources=["quickbin/_quickbin_core.c"])
+quickbin_core = Extension(
+    "quickbin.quickbin_core",
+    sources=[
+        "quickbin/binning.c",
+        "quickbin/iterators.c",
+        "quickbin/quickbin_core.c",
+    ]
+)
 
 setup(
-    ext_modules=[_quickbin_core],
+    ext_modules=[quickbin_core],
     include_dirs=[np.get_include()],
 )

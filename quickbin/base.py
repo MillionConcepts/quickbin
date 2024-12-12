@@ -6,7 +6,16 @@ from enum import Flag
 
 import numpy as np
 
-from quickbin._quickbin_core import genhist, OPS
+from quickbin.quickbin_core import (
+    binned_count,
+    binned_countvals,
+    binned_sum,
+    binned_median,
+    binned_min,
+    binned_max,
+    binned_minmax,
+    binned_std
+)
 
 OpName = Literal[tuple(OPS.keys())]
 Ops = new_class("Ops", bases=(Flag,), exec_body=lambda ns: ns.update(OPS))
