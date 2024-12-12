@@ -13,6 +13,7 @@
 #include "iterators.h"
 #include "opmask.h"
 
+PyObject* arrtest_outside(PyObject *self, PyObject *args);
 PyObject* binned_count(PyObject *self, PyObject *args);
 PyObject* binned_countvals(PyObject *self, PyObject *args);
 PyObject* binned_median(PyObject *self, PyObject *args);

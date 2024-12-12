@@ -37,6 +37,105 @@ make_ops_mapping(PyObject *module) {
     return true;
 }
 
+PyObject*
+arrtest_inside(PyObject *self, PyObject *args) {
+    PyObject *xarg;
+    if (!PyArg_ParseTuple(args, "O", &xarg)) { return NULL; }
+    printf("I am attempting to create an accessable PyArrayObject\n");
+    PyArrayObject *xarr = (PyArrayObject*) PyArray_FROM_O(xarg);
+    printf("I did it\n");
+    return Py_None;
+}
+
+static PyMethodDef
+QuickbinMethods[] = {
+    {
+        "arrtest_outside",
+        (PyCFunction) arrtest_outside,
+        METH_VARARGS,
+        "Minimal ndarray access function defined in other file."
+    },
+    {
+        "arrtest_inside",
+        (PyCFunction) arrtest_inside,
+        METH_VARARGS,
+        "Minimal ndarray access function defined in this file."
+    },
+    {
+        "_binned_count",
+        (PyCFunction) binned_count,
+        METH_VARARGS,
+        "Binned count function."
+    },
+    {
+        "_binned_sum",
+        (PyCFunction) binned_sum,
+        METH_VARARGS,
+        "Binned sum function."
+    },
+    {
+        "_binned_countvals",
+        (PyCFunction) binned_countvals,
+        METH_VARARGS,
+        "Binned count / sum / mean function."
+    },
+    {
+        "_binned_min",
+        (PyCFunction) binned_min,
+        METH_VARARGS,
+        "Binned min function."
+    },
+    {
+        "_binned_max",
+        (PyCFunction) binned_max,
+        METH_VARARGS,
+        "Binned max function."
+    },
+    {
+        "_binned_minmax",
+        (PyCFunction) binned_minmax,
+        METH_VARARGS,
+        "Binned min + max function."
+    },
+    {
+        "_binned_std",
+        (PyCFunction) binned_std,
+        METH_VARARGS,
+        "Binned standard deviation function."
+    },
+    {
+        "_binned_median",
+        (PyCFunction) binned_median,
+        METH_VARARGS,
+        "Binned median function."
+    },
+    {NULL, NULL, 0, NULL}
+};
+
+static struct
+PyModuleDef quickbin_core_mod = {
+    PyModuleDef_HEAD_INIT,
+    "quickbin_core",   /* name of module */
+    NULL, /* module documentation, may be NULL */
+    -1,       /* size of per-interpreter state of the module,
+    or -1 if the module keeps state in global variables. */
+    QuickbinMethods
+};
+
+PyMODINIT_FUNC PyInit_quickbin_core(void) {
+    import_array();
+    PyObject *m = PyModule_Create(&quickbin_core_mod);
+    if (!m)
+        return NULL;
+    if (!make_ops_mapping(m)) {
+        Py_DECREF(m);
+        return NULL;
+    }
+    return m;
+}
+
+// dead code for reference
+
 //static bool
 //check_opmask(
 //    const long int raw_opmask,
@@ -135,81 +234,23 @@ make_ops_mapping(PyObject *module) {
 //    }
 //    return binned_arr;
 //}
+//
+//PyObject*
+//arrtest(PyObject *self, PyObject *args) {
+//    PyObject *xarg, *yarg, *varg, *resarg;
+//    if (!PyArg_ParseTuple(args, "O", &xarg)) { return NULL; }
+//    PyArrayObject *xarr = (PyArrayObject*) PyArray_FROM_O(xarg);
+//    return Py_None;
+//}
 
-static PyMethodDef
-QuickbinMethods[] = {
-    {
-        "binned_count",
-        (PyCFunction) binned_count,
-        METH_VARARGS,
-        "Binned count function."
-    },
-    {
-        "binned_sum",
-        (PyCFunction) binned_sum,
-        METH_VARARGS,
-        "Binned sum function."
-    },
-    {
-        "binned_countvals",
-        (PyCFunction) binned_countvals,
-        METH_VARARGS,
-        "Binned count / sum / mean function."
-    },
-    {
-        "binned_min",
-        (PyCFunction) binned_min,
-        METH_VARARGS,
-        "Binned min function."
-    },
-    {
-        "binned_max",
-        (PyCFunction) binned_max,
-        METH_VARARGS,
-        "Binned max function."
-    },
-    {
-        "binned_minmax",
-        (PyCFunction) binned_minmax,
-        METH_VARARGS,
-        "Binned min + max function."
-    },
-    {
-        "binned_std",
-        (PyCFunction) binned_std,
-        METH_VARARGS,
-        "Binned standard deviation function."
-    },
-    {
-        "binned_median",
-        (PyCFunction) binned_median,
-        METH_VARARGS,
-        "Binned median function."
-    },
-    {NULL, NULL, 0, NULL}
-};
 
-static struct
-PyModuleDef quickbin_core_mod = {
-    PyModuleDef_HEAD_INIT,
-    "quickbin_core",   /* name of module */
-    NULL, /* module documentation, may be NULL */
-    -1,       /* size of per-interpreter state of the module,
-    or -1 if the module keeps state in global variables. */
-    QuickbinMethods
-};
-
-PyMODINIT_FUNC PyInit_quickbin_core(void) {
-    import_array();
-    PyObject *m = PyModule_Create(&quickbin_core_mod);
-    if (!m)
-        return NULL;
-    if (!make_ops_mapping(m)) {
-        Py_DECREF(m);
-        return NULL;
-    }
-    return m;
-}
-
-int
-main() {return 0;}
+////    PyArrayObject *yarr = (PyArrayObject*) PyArray_FROM_O(yarg);
+////    PyArrayObject *varr = (PyArrayObject*) PyArray_FROM_O(varg);
+////    PyArrayObject *resarr = (PyArrayObject*) PyArray_FROM_O(resarg);
+//    printf("xarr is this big: %li\n\n", PyArray_SIZE(xarr));
+////    printf("yarr is this big: %li\n\n", PyArray_SIZE(yarr));
+////    printf("varr is this big: %li\n\n", PyArray_SIZE(varr));
+////    printf("resarrr is this big: %li\n\n", PyArray_SIZE(resarr));
+//    PyErr_SetString(ValueError, "Suck it, loser\n\n\n");
+//    return NULL;
+//}

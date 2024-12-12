@@ -1,5 +1,15 @@
 #include "binning.h"
 
+PyObject*
+arrtest_outside(PyObject *self, PyObject *args) {
+    PyObject *xarg;
+    if (!PyArg_ParseTuple(args, "O", &xarg)) { return NULL; }
+    printf("I am attempting to create an accessable PyArrayObject\n");
+    PyArrayObject *xarr = (PyArrayObject*) PyArray_FROM_O(xarg);
+    printf("I did it\n");
+    return Py_None;
+}
+
 static bool
 check_arrs(PyArrayObject *arrays[static 2], long n_arrays) {
     npy_intp insize = PyArray_SIZE(arrays[0]);
@@ -19,7 +29,6 @@ check_arrs(PyArrayObject *arrays[static 2], long n_arrays) {
     }
     return true;
 }
-
 
 #define PYARRAY_AS_DOUBLES(PYARG)                                   \
 (double *) PyArray_DATA((PyArrayObject *) PyArray_FROM_O(PYARG))
@@ -77,12 +86,12 @@ prep_binning(
     PyArrayObject *arrs[static 3], const int narrs,
     Iterface *iter, Histspace *space
 ) {
-    if (check_arrs(arrs, narrs) == false) { return 0; };
     arrs[0] = (PyArrayObject *) PyArray_FROM_O(xarg);
     arrs[1] = (PyArrayObject *) PyArray_FROM_O(yarg);
     if (narrs == 3) {
         arrs[2] = (PyArrayObject *) PyArray_FROM_O(varg);
     }
+    if (check_arrs(arrs, narrs) == false) { return 0; };
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
     if (!init_iterface(iter, arrs, narrs)) {
@@ -98,13 +107,13 @@ binned_count(PyObject *self, PyObject *args)
     long nx, ny;
     double xmin, xmax, ymin, ymax;
     PyObject *xarg, *yarg, *countarg;
-    if (!PyArg_ParseTuple(args, "OOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOddddll",
         &xarg, &yarg, &countarg, &xmin, &xmax,
         &ymin, &ymax, &nx, &ny)
     ) { return NULL; } // PyArg_ParseTuple has set an exception
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
+    PyObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, NULL, arrs,
         2, &iter, &space
@@ -123,12 +132,21 @@ binned_sum(PyObject *self, PyObject *args) {
     double xmin, xmax, ymin, ymax, val;
     PyObject *xarg, *yarg, *varg, *sumarg;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOOddddll",
       &xarg, &yarg, &varg, &sumarg,
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
     PyArrayObject *arrs[3];
+    const char *typeName = Py_TYPE(xarg)->tp_name;
+    printf("xarg is a %s\n\n\n", typeName);
+    typeName = Py_TYPE(yarg)->tp_name;
+    printf("yarg is a %s\n\n\n", typeName);
+    typeName = Py_TYPE(varg)->tp_name;
+    printf("varg is a %s\n\n\n", typeName);
+    typeName = Py_TYPE(sumarg)->tp_name;
+    printf("sumarg is a %s\n\n\n", typeName);
+    PyErr_SetString(ValueError, "Suck it, loser\n\n\n");
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );
@@ -147,13 +165,13 @@ binned_countvals(PyObject *self, PyObject *args) {
     PyObject *xarg, *yarg, *varg, *countarg, *sumarg, *meanarg;
     unsigned int opmask;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOddddllli",
+    if (!PyArg_ParseTuple(args, "OOOOOOddddlli",
       &xarg, &yarg, &varg, &countarg, &sumarg, &meanarg,
       &xmin, &xmax, &ymin, &ymax,
       &nx, &ny, &opmask)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
+    PyObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );
@@ -176,7 +194,7 @@ binned_std(PyObject *self, PyObject *args) {
     PyObject *xarg, *yarg, *varg, *countarg, *sumarg, *meanarg, *stdarg;
     unsigned int opmask;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOOOddddllli",
+    if (!PyArg_ParseTuple(args, "OOOOOOOddddlli",
       &xarg, &yarg, &varg, &countarg, &sumarg, &meanarg, &stdarg,
       &xmin, &xmax, &ymin, &ymax,
       &nx, &ny, &opmask)) { return NULL; }
@@ -196,6 +214,9 @@ binned_std(PyObject *self, PyObject *args) {
         assign_countsum(count, sum, indices[1] + indices[0] * ny, val);
         sqr[indices[1] + ny * indices[0]] += (val * val);
     }
+    if (opmask & GH_MEAN) {
+        populate_meanarr(nx * ny, count, sum, PYARRAY_AS_DOUBLES(meanarg));
+    }
     populate_stdarr(nx * ny, count, sum, sqr, PYARRAY_AS_DOUBLES(stdarg));
     free(sqr);
     return Py_None;
@@ -207,7 +228,7 @@ binned_minmax(PyObject *self, PyObject *args) {
     double xmin, xmax, ymin, ymax, val;
     PyObject *xarg, *yarg, *varg, *minarg, *maxarg;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOOOddddll",
       &xarg, &yarg, &varg, &minarg, &maxarg,
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
@@ -248,7 +269,7 @@ binned_min(PyObject *self, PyObject *args) {
     double xmin, xmax, ymin, ymax, val;
     PyObject *xarg, *yarg, *varg, *minarg;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOOddddll",
       &xarg, &yarg, &varg, &minarg,
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
@@ -279,7 +300,7 @@ binned_max(PyObject *self, PyObject *args) {
     double xmin, xmax, ymin, ymax, val;
     PyObject *xarg, *yarg, *varg, *maxarg;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOOddddll",
       &xarg, &yarg, &varg, &maxarg,
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
@@ -311,12 +332,12 @@ binned_median(PyObject *self, PyObject *args) {
     double xmin, xmax, ymin, ymax;
     PyObject *xarg, *yarg, *varg, *medarg;
     // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddlll",
+    if (!PyArg_ParseTuple(args, "OOOOddddll",
       &xarg, &yarg, &varg, &medarg,
       &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
+    PyObject *arrs[3];
     int status = prep_binning(
         nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
     );

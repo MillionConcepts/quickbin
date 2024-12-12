@@ -1,20 +1,20 @@
-from numbers import Integral, Number
-import signal
-from types import new_class
-from typing import Literal, Optional, Sequence, Union
 from enum import Flag
+from numbers import Integral, Number, Real
+from types import new_class
+from typing import Callable, Literal, Optional, Sequence, Union
 
 import numpy as np
 
 from quickbin.quickbin_core import (
-    binned_count,
-    binned_countvals,
-    binned_sum,
-    binned_median,
-    binned_min,
-    binned_max,
-    binned_minmax,
-    binned_std
+    _binned_count,
+    _binned_countvals,
+    _binned_sum,
+    _binned_median,
+    _binned_min,
+    _binned_max,
+    _binned_minmax,
+    _binned_std,
+    OPS
 )
 
 OpName = Literal[tuple(OPS.keys())]
@@ -22,18 +22,102 @@ Ops = new_class("Ops", bases=(Flag,), exec_body=lambda ns: ns.update(OPS))
 
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 
-INTERRUPTS_RECEIVED = []
+# signature of C binning functions from Python's perspective
+# TODO: this is overly generic. Write out all actual signatures explicitly
+Binfunc = Callable[
+    [np.ndarray, ..., Real, Real, Real, Real, Integral, Integral, ...], None
+]
+
+
+def binned_unary(
+    arrs: Union[
+          tuple[np.ndarray, np.ndarray],
+          tuple[np.ndarray, np.ndarray, np.ndarray]
+    ],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+    binfunc: Binfunc,
+    dtype: np.dtype
+):
+    """
+    Handler for C binning functions that populate only one array:
+    count, sum, median, min, and max.
+    """
+    result = np.zeros(n_bins[0] * n_bins[1], dtype=dtype)
+    binfunc(*arrs, result, *ranges, *n_bins)
+    return result.reshape(n_bins)
+
+
+def binned_countvals(
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+    oparg: int
+) -> dict[str, np.ndarray]:
+    """Handler for C binned_countvals()."""
+    countarr = np.zeros(arrs[0].size, dtype='f8')
+    sumarr = np.zeros(arrs[0].size, dtype='f8')
+    if oparg & OPS["mean"]:
+        meanarr = np.zeros(arrs[0].size, dtype='f8')
+    else:
+        meanarr = np.array([])  # should never be touched by C in this case
+    _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins, oparg)
+    output = {}
+    for name, arr in zip(("count", "sum", "mean"), (countarr, sumarr, meanarr)):
+        if oparg & OPS[name]:
+            output[name] = arr
+    return output
+
+
+# TODO, maybe: Perhaps a bit redundant with binned_countvals().
+def binned_std(
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+    oparg: int
+) -> dict[str, np.ndarray]:
+    """Handler for C binned_std()."""
+    countarr = np.zeros(arrs[0].size, dtype='f8')
+    sumarr = np.zeros(arrs[0].size, dtype='f8')
+    stdarr = np.zeros(arrs[0].size, dtype='f8')
+    if oparg & OPS["mean"]:
+        meanarr = np.zeros(arrs[0].size, dtype='f8')
+    else:
+        meanarr = np.array([])  # should never be touched by C in this case
+    _binned_std(
+        *arrs, countarr, sumarr, meanarr, stdarr, *ranges, *n_bins, oparg
+    )
+    output = {}
+    for name, arr in zip(
+        ("count", "sum", "mean", "std"), (countarr, sumarr, meanarr, stdarr)
+    ):
+        if oparg & OPS[name]:
+            output[name] = arr
+    return output
+
+
+def binned_minmax(
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+) -> dict[str, np.ndarray]:
+    """Handler for C binned_minmax()."""
+    minarr = np.zeros(arrs[0].size, dtype='f8')
+    maxarr = np.zeros(arrs[0].size, dtype='f8')
+    _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
+    return {"min": minarr, "max": maxarr}
+
 
 def bin2d(
     x_arr: np.ndarray,
     y_arr: np.ndarray,
-    val_arr: np.ndarray,
+    val_arr: Optional[np.ndarray],
     op: Union[OpName, Sequence[OpName]],
     n_bins: Union[Integral, Sequence[int]],
     bbounds: Optional[
         tuple[tuple[Number, Number], tuple[Number, Number]]
     ] = None
-):
+) -> Union[dict[str, np.ndarray], np.ndarray]:
     arrs = [x_arr, y_arr, val_arr]
     for i, arr in enumerate(arrs):
         if arr is None:
@@ -76,26 +160,26 @@ def bin2d(
             f"Unknown operation(s) {ops.difference(OPS.keys())}. "
             f"Valid operations are {', '.join(OPS.keys())}."
         )
-
-    def make_interrupter():
-        # TODO: politely replace default keyboardinterrupt
-        def interrupter(signalnum, frame):
-            INTERRUPTS_RECEIVED.append(signal.SIGINT)
-            raise KeyboardInterrupt
-
-        return interrupter
-
     oparg = sum(OPS[o] for o in map(str.lower, ops))
-    try:
-        signal.signal(signal.SIGINT, make_interrupter())
-        res = genhist(arrs, *ranges, *n_bins, oparg)
-        if isinstance(res, np.ndarray):
-            return res.reshape(n_bins)
-        elif len(res) == 1:
-            return tuple(res.values())[0].reshape(n_bins)
-        return {k: v.reshape(n_bins) for k, v in res.items()}
-    except Exception as ex:
-        if len(INTERRUPTS_RECEIVED) > 0:
-            raise KeyboardInterrupt
-        raise ex
-
+    if oparg & OPS["median"]:
+        if oparg != OPS["median"]:
+            raise ValueError("median can only be computed alone.")
+        return binned_unary(arrs, ranges, n_bins, _binned_median, np.float64)
+    if oparg == OPS["min"] | OPS["max"]:
+        if oparg & ~(OPS["min"] | OPS["max"]):
+            raise ValueError("min/max can only be computed alongside min/max")
+    if oparg == OPS["min"] | OPS["max"]:
+        return binned_minmax(arrs, ranges, n_bins)
+    if oparg == OPS["min"]:
+        return binned_unary(arrs, ranges, n_bins, _binned_min, np.float64)
+    if oparg == OPS["max"]:
+        return binned_unary(arrs, ranges, n_bins, _binned_max, np.float64)
+    if oparg == OPS["count"]:
+        return binned_unary(arrs[:2], ranges, n_bins, _binned_count, np.int64)
+    if oparg == OPS["sum"]:
+        return binned_unary(arrs, ranges, n_bins, _binned_sum, np.float64)
+    if oparg & OPS["std"]:
+        return binned_std(arrs, ranges, n_bins, oparg)
+    if oparg & ~(OPS["count"] | OPS["sum"] | OPS["mean"]):
+        raise ValueError("Failure in binning operation selection.")
+    return binned_countvals(arrs, ranges, n_bins, oparg)
