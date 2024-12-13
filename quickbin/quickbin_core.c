@@ -41,49 +41,37 @@ QuickbinMethods[] = {
     {
         "_binned_count",
         (PyCFunction) binned_count,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned count function."
     },
     {
         "_binned_sum",
         (PyCFunction) binned_sum,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned sum function."
     },
     {
         "_binned_countvals",
         (PyCFunction) binned_countvals,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned count / sum / mean function."
-    },
-    {
-        "_binned_min",
-        (PyCFunction) binned_min,
-        METH_VARARGS,
-        "Binned min function."
-    },
-    {
-        "_binned_max",
-        (PyCFunction) binned_max,
-        METH_VARARGS,
-        "Binned max function."
     },
     {
         "_binned_minmax",
         (PyCFunction) binned_minmax,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned min + max function."
     },
     {
         "_binned_std",
         (PyCFunction) binned_std,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned standard deviation function."
     },
     {
         "_binned_median",
         (PyCFunction) binned_median,
-        METH_VARARGS,
+        METH_FASTCALL,
         "Binned median function."
     },
     {NULL, NULL, 0, NULL}

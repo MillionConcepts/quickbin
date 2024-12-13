@@ -1,33 +1,8 @@
 #include "binning.h"
 #include "iterators.h"
-#include "opmask.h"
 
-static bool
-check_arrs(PyArrayObject *arrays[static 2], long n_arrays) {
-    npy_intp insize = PyArray_SIZE(arrays[0]);
-    for (long i = 0; i < n_arrays; i++) {
-        if (arrays[i] == NULL) {
-            PyErr_SetString(PyExc_TypeError, "Couldn't parse an array");
-            return false;
-        }
-        if (PyArray_NDIM(arrays[i]) != 1) {
-            PyErr_SetString(PyExc_TypeError, "Arrays must be of dimension 1");
-            return false;
-        }
-        if (PyArray_SIZE(arrays[i]) != insize) {
-            PyErr_SetString(PyExc_TypeError, "Arrays must be of the same size");
-            return false;
-        }
-    }
-    return true;
-}
-
-#define PYARRAY_AS_DOUBLES(PYARG)                                   \
-(double *) PyArray_DATA((PyArrayObject *) PyArray_FROM_O(PYARG))
-
-#define PYARRAY_AS_LONGS(PYARG)                                     \
-(long *) PyArray_DATA((PyArrayObject *) PyArray_FROM_O(PYARG))
-
+#define PYARRAY_AS_DOUBLES(PYARG) ((double *) PyArray_DATA(PYARG))
+#define PYARRAY_AS_LONGS(PYARG) ((long *) PyArray_DATA(PYARG))
 
 static inline void
 assign_countsum(double *count, double *sum, long index, double val) {
@@ -69,265 +44,324 @@ doublecomp(const void *a, const void *b) {
     return 0;
 }
 
-int
-prep_binning(
-    const long nx, const long ny,
-    const double xmin, const double xmax,
-    const double ymin, const double ymax,
-    PyObject *xarg, PyObject *yarg, PyObject *varg,
-    PyArrayObject *arrs[static 3], const int narrs,
-    Iterface *iter, Histspace *space
-) {
-    arrs[0] = (PyArrayObject *) PyArray_FROM_O(xarg);
-    arrs[1] = (PyArrayObject *) PyArray_FROM_O(yarg);
-    if (narrs == 3) {
-        arrs[2] = (PyArrayObject *) PyArray_FROM_O(varg);
+static int
+arg_as_double(const char *binfunc, PyObject *const *args, Py_ssize_t n,
+              double *dp)
+{
+    double d = PyFloat_AsDouble(args[n]);
+    if (d == -1.0 && PyErr_Occurred()) {
+        // Doing "raise new_exception(...) from old_exception" in the
+        // C API is way more trouble than it's worth.  See discussion
+        // here: https://stackoverflow.com/questions/51030659
+        PyErr_Clear();
+        PyErr_Format(PyExc_TypeError,
+                     "%s: could not convert arg %zd (%S) to C double",
+                     binfunc, n, (PyObject *)Py_TYPE(args[n]));
+        return -1;
     }
-    if (check_arrs(arrs, narrs) == false) { return 0; };
+    *dp = d;
+    return 0;
+}
+
+static int
+arg_as_long(const char *binfunc, PyObject *const *args, Py_ssize_t n,
+            long *lp)
+{
+    long l = PyLong_AsLong(args[n]);
+    if (l == -1 && PyErr_Occurred()) {
+        // see arg_as_double for why we're discarding the original error
+        PyErr_Clear();
+        PyErr_Format(PyExc_TypeError,
+                     "%s: could not convert arg %zd (%S) to C long",
+                     binfunc, n, (PyObject *)Py_TYPE(args[n]));
+        return -1;
+    }
+    *lp = l;
+    return 0;
+}
+
+static int
+arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
+             npy_intp insize, bool none_ok, PyArrayObject **p_array)
+{
+    *p_array = NULL;
+    if (Py_IsNone(args[n])) {
+        if (none_ok) {
+            return 0;
+        }
+        PyErr_Format(PyExc_TypeError, "%s: arg %zd may not be None",
+                     binfunc, n);
+        return -1;
+    }
+    PyArrayObject *array = (PyArrayObject *)PyArray_FROM_O(args[n]);
+    if (!array) {
+        // see arg_as_double for why we're discarding the original error
+        PyErr_Clear();
+        PyErr_Format(PyExc_TypeError,
+                     "%s: could not convert arg %zd (%S) to ndarray",
+                     binfunc, n, (PyObject *)Py_TYPE(args[n]));
+        return -1;
+    }
+
+
+    if (PyArray_NDIM(array) != 1) {
+        PyErr_Format(PyExc_TypeError,
+                     "%s: arg %zd must be a 1-dimensional array",
+                     binfunc, n);
+        return -1;
+    }
+    if (insize >= 0 && PyArray_SIZE(array) != insize) {
+        PyErr_Format(PyExc_TypeError,
+                     "%s: arg %zd must have %zd elements (it has %zd)",
+                     binfunc, n, insize, PyArray_SIZE(array));
+        return -1;
+    }
+
+    // TODO also check the element type
+
+    *p_array = array;
+    return 0;
+}
+
+// yes, this function has 11 arguments. i'm very sorry.
+static int
+unpack_binfunc_args(
+    const char *binfunc,
+    PyObject *const *args,
+    Py_ssize_t n_args,
+    Py_ssize_t n_inputs,
+    Py_ssize_t n_outputs,
+    Py_ssize_t n_required_outputs,
+    Iterface *iter,
+    Histspace *space,
+    long *nx,
+    long *ny,
+    PyArrayObject **outputs
+) {
+    // All binfuncs take arguments in this order:
+    // x, y[, v], output 1[, output 2, ...], xmin, xmax, ymin, ymax, nx, ny
+    // Outputs are identified by position
+    // Unwanted outputs will be passed as None
+    // The first 'n_required_outputs' outputs may not be None
+    // (even if the Python-level caller doesn't want 'em, we need 'em
+    // for scratch space)
+    assert(n_inputs == 2 || n_inputs == 3);
+    assert(n_required_outputs >= 1);
+    assert(n_outputs >= n_required_outputs);
+
+    if (n_args != 6 + n_inputs + n_outputs) {
+        PyErr_Format(PyExc_TypeError, "%s: expected %zd args, got %zd",
+                     binfunc, 6 + n_inputs + n_outputs, n_args);
+        return -1;
+    }
+
+    PyArrayObject *xarg, *yarg, *varg;
+    if (arg_as_array(binfunc, args, 0, -1, false, &xarg))
+        return -1;
+    if (arg_as_array(binfunc, args, 1, PyArray_SIZE(xarg), false, &yarg))
+        return -1;
+    if (n_inputs == 3) {
+        if (arg_as_array(binfunc, args, 2, PyArray_SIZE(xarg), false, &varg))
+            return -1;
+    } else {
+        varg = NULL;
+    }
+
+    double xmin, xmax, ymin, ymax;
+    if (   arg_as_double(binfunc, args, n_inputs + n_outputs + 0, &xmin)
+        || arg_as_double(binfunc, args, n_inputs + n_outputs + 1, &xmax)
+        || arg_as_double(binfunc, args, n_inputs + n_outputs + 2, &ymin)
+        || arg_as_double(binfunc, args, n_inputs + n_outputs + 3, &ymax)
+        || arg_as_long  (binfunc, args, n_inputs + n_outputs + 4, nx)
+        || arg_as_long  (binfunc, args, n_inputs + n_outputs + 4, ny)) {
+        return -1;
+    }
+
+    // output arrays are processed last because we need to know nx and
+    // ny to know how big they should be
+    // even if none of the outputs are _required_, at least one of them
+    // should be present, otherwise why bother calling at all?
+    npy_intp output_size = *nx * *ny;
+    bool have_an_output = false;
+    for (Py_ssize_t i = 0; i < n_outputs; i++) {
+        if (arg_as_array(binfunc, args, n_inputs + i,
+                         output_size, i >= n_required_outputs,
+                         &outputs[i])) {
+            return -1;
+        }
+        if (outputs[i]) {
+            have_an_output = true;
+        }
+    }
+    if (!have_an_output) {
+        PYRAISE(ValueError, "at least one output array should be present");
+    }
+
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
-    if (!init_iterface(iter, arrs, narrs)) {
-        PYRAISE(ValueError, "Binning setup failed.");
+    PyArrayObject *arrs[3] = { xarg, yarg, varg };
+    if (!init_iterface(iter, arrs, n_inputs)) {
+        PYRAISE(PyExc_RuntimeError, "Binning setup failed.");
     }
-    init_histspace(space, xbounds, ybounds, nx, ny);
-    return 1;
+    init_histspace(space, xbounds, ybounds, *nx, *ny);
+    return 0;
 }
 
 PyObject*
-binned_count(PyObject *self, PyObject *args)
+binned_count(PyObject *self, PyObject *const *args, Py_ssize_t n_args)
 {
     long nx, ny;
-    double xmin, xmax, ymin, ymax;
-    PyObject *xarg, *yarg, *countarg;
-    if (!PyArg_ParseTuple(args, "OOOddddll",
-        &xarg, &yarg, &countarg, &xmin, &xmax,
-        &ymin, &ymax, &nx, &ny)
-    ) { return NULL; } // PyArg_ParseTuple has set an exception
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, NULL, arrs,
-        2, &iter, &space
-    );
-    if (status == 0) { return NULL; }
+    PyArrayObject *countarg;
+    if (unpack_binfunc_args(__func__, args, n_args, 2, 1, 1,
+                            &iter, &space, &nx, &ny, &countarg)) {
+        return NULL;
+    }
+
     long *count = PYARRAY_AS_LONGS(countarg);
     FOR_NDITER_COUNT (&iter, &space, indices) {
         if (indices[0] >= 0) count[indices[1] + ny * indices[0]] += 1;
     }
-    return Py_None;
+
+    Py_RETURN_NONE;
 }
 
 PyObject*
-binned_sum(PyObject *self, PyObject *args) {
+binned_sum(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *sumarg;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddll",
-      &xarg, &yarg, &varg, &sumarg,
-      &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
+    PyArrayObject *sumarg;
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 1, 1,
+                            &iter, &space, &nx, &ny, &sumarg)) {
+        return NULL;
+    }
+
     double *sum = PYARRAY_AS_DOUBLES(sumarg);
+    double val;
     FOR_NDITER (&iter, &space, indices, &val) {
         if (indices[0] >= 0) sum[indices[1] + ny * indices[0]] += val;
     }
-    return Py_None;
+    Py_RETURN_NONE;
 }
 
 PyObject*
-binned_countvals(PyObject *self, PyObject *args) {
+binned_countvals(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *countarg, *sumarg, *meanarg;
-    unsigned int opmask;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOOddddlli",
-      &xarg, &yarg, &varg, &countarg, &sumarg, &meanarg,
-      &xmin, &xmax, &ymin, &ymax,
-      &nx, &ny, &opmask)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
-    double *count = PYARRAY_AS_DOUBLES(countarg);
-    double *sum = PYARRAY_AS_DOUBLES(sumarg);
+    PyArrayObject *outputs[3];
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 3, 2,
+                            &iter, &space, &nx, &ny, outputs)) {
+        return NULL;
+    }
+
+    double *count = PYARRAY_AS_DOUBLES(outputs[0]);
+    double *sum = PYARRAY_AS_DOUBLES(outputs[1]);
+    double val;
     FOR_NDITER (&iter, &space, indices, &val) {
         assign_countsum(count, sum, indices[1] + indices[0] * ny, val);
     }
-    if (opmask & GH_MEAN) {
-        populate_meanarr(nx * ny, count, sum, PYARRAY_AS_DOUBLES(meanarg));
+    if (outputs[2]) {
+        populate_meanarr(nx * ny, count, sum, PYARRAY_AS_DOUBLES(outputs[2]));
     }
-    return Py_None;
+    Py_RETURN_NONE;
 }
 
 PyObject*
-binned_std(PyObject *self, PyObject *args) {
+binned_std(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *countarg, *sumarg, *meanarg, *stdarg;
-    unsigned int opmask;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOOOddddlli",
-      &xarg, &yarg, &varg, &countarg, &sumarg, &meanarg, &stdarg,
-      &xmin, &xmax, &ymin, &ymax,
-      &nx, &ny, &opmask)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) return NULL;
+    PyArrayObject *outputs[4];
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 4, 3,
+                            &iter, &space, &nx, &ny, outputs)) {
+        return NULL;
+    }
+
     // NOTE: no point making the caller construct an ndarray for the sum of
     // squares (who would want it?)
     double *sqr = calloc(sizeof *sqr, nx * ny);
-    double *sum = PYARRAY_AS_DOUBLES(sumarg);
-    double *count = PYARRAY_AS_DOUBLES(countarg);
+    if (!sqr) {
+        PyErr_NoMemory();
+        return NULL;
+    }
+    double *count = PYARRAY_AS_DOUBLES(outputs[0]);
+    double *sum = PYARRAY_AS_DOUBLES(outputs[1]);
+    double val;
     FOR_NDITER (&iter, &space, indices, &val) {
         assign_countsum(count, sum, indices[1] + indices[0] * ny, val);
         sqr[indices[1] + ny * indices[0]] += (val * val);
     }
-    if (opmask & GH_MEAN) {
-        populate_meanarr(nx * ny, count, sum, PYARRAY_AS_DOUBLES(meanarg));
+
+    populate_stdarr(nx * ny, count, sum, sqr, PYARRAY_AS_DOUBLES(outputs[2]));
+    if (outputs[3]) {
+        populate_meanarr(nx * ny, count, sum, PYARRAY_AS_DOUBLES(outputs[3]));
     }
-    populate_stdarr(nx * ny, count, sum, sqr, PYARRAY_AS_DOUBLES(stdarg));
+
     free(sqr);
-    return Py_None;
+    Py_RETURN_NONE;
 }
 
 PyObject*
-binned_minmax(PyObject *self, PyObject *args) {
+binned_minmax(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *minarg, *maxarg;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOOddddll",
-      &xarg, &yarg, &varg, &minarg, &maxarg,
-      &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
-    double* min = PYARRAY_AS_DOUBLES(minarg);
-    double* max = PYARRAY_AS_DOUBLES(maxarg);
-    for (long i = 0; i < nx * ny; i++) {
-        max[i] = -INFINITY;
-        min[i] = INFINITY;
+    PyArrayObject *outputs[2];
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 2, 0,
+                            &iter, &space, &nx, &ny, outputs)) {
+        return NULL;
     }
+    double *min = outputs[0] ? PYARRAY_AS_DOUBLES(outputs[0]) : NULL;
+    double *max = outputs[1] ? PYARRAY_AS_DOUBLES(outputs[1]) : NULL;
+    double val;
+
+    for (long i = 0; i < nx * ny; i++) {
+        if (max) max[i] = -INFINITY;
+        if (min) min[i] = INFINITY;
+    }
+
     FOR_NDITER (&iter, &space, indices, &val) {
-        if (max[indices[1] + ny * indices[0]] < val) {
+        if (max &&
+            max[indices[1] + ny * indices[0]] < val) {
             max[indices[1] + ny * indices[0]] = val;
         }
-        if (min[indices[1] + ny * indices[0]] > val) {
+        if (min &&
+            min[indices[1] + ny * indices[0]] > val) {
             min[indices[1] + ny * indices[0]] = val;
         }
     }
+
     // TODO: this will produce NaNs in the perverse case where
     //  an array is filled entirely with INFINITY / -INFINITY;
     //  just have a special case up top
     for (long i = 0; i < nx * ny; i++) {
-        if (min[i] == INFINITY) min[i] = NAN;
-        if (max[i] == -INFINITY) max[i] = NAN;
+        if (max && max[i] == -INFINITY) max[i] = NAN;
+        if (min && min[i] == INFINITY) min[i] = NAN;
     }
-    return Py_None;
-}
-
-// this feels _painfully_ repetitive with binned_max()
-PyObject*
-binned_min(PyObject *self, PyObject *args) {
-    long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *minarg;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddll",
-      &xarg, &yarg, &varg, &minarg,
-      &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
-    Iterface iter;
-    Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
-    double* min = PYARRAY_AS_DOUBLES(minarg);
-    FOR_NDITER (&iter, &space, indices, &val) {
-        if (min[indices[1] + ny * indices[0]] > val) {
-            min[indices[1] + ny * indices[0]] = val;
-        }
-    }
-    // TODO: this will produce NaNs in the perverse case where
-    //  an array is filled entirely with INFINITY;
-    //  just have a special case up top
-    for (long i = 0; i < nx * ny; i++) {
-        if (min[i] == INFINITY) min[i] = NAN;
-    }
-    return Py_None;
+    Py_RETURN_NONE;
 }
 
 PyObject*
-binned_max(PyObject *self, PyObject *args) {
-    long nx, ny;
-    double xmin, xmax, ymin, ymax, val;
-    PyObject *xarg, *yarg, *varg, *maxarg;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddll",
-      &xarg, &yarg, &varg, &maxarg,
-      &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
-    Iterface iter;
-    Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
-    double* max = PYARRAY_AS_DOUBLES(maxarg);
-    FOR_NDITER (&iter, &space, indices, &val) {
-        if (max[indices[1] + ny * indices[0]] < val) {
-            max[indices[1] + ny * indices[0]] = val;
-        }
-    }
-    // TODO: this will produce NaNs in the perverse case where
-    //  an array is filled entirely with -INFINITY;
-    //  just have a special case up top
-    for (long i = 0; i < nx * ny; i++) {
-        if (max[i] == -INFINITY) max[i] = NAN;
-    }
-    return Py_None;
-}
-
-PyObject*
-binned_median(PyObject *self, PyObject *args) {
+binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     // TODO: there may be unnecessary copies happening here
     long nx, ny;
-    double xmin, xmax, ymin, ymax;
-    PyObject *xarg, *yarg, *varg, *medarg;
-    // PyArg_ParseTuple sets an exception on failure
-    if (!PyArg_ParseTuple(args, "OOOOddddll",
-      &xarg, &yarg, &varg, &medarg,
-      &xmin, &xmax, &ymin, &ymax, &nx, &ny)) { return NULL; }
     Iterface iter;
     Histspace space;
-    PyArrayObject *arrs[3];
-    int status = prep_binning(
-        nx, ny, xmin, xmax, ymin, ymax, xarg, yarg, varg, arrs, 3, &iter, &space
-    );
-    if (status == 0) { return NULL; }
+    PyArrayObject *medarg;
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 1, 1,
+                            &iter, &space, &nx, &ny, &medarg)) {
+        return NULL;
+    }
+    // if we get here these assignments have been validated
+    PyArrayObject *xarg = (PyArrayObject *)args[0];
+    PyArrayObject *varg = (PyArrayObject *)args[2];
+
     PyObject *numpy = PyImport_ImportModule("numpy");
     PyObject *unique = GETATTR(numpy, "unique");
-    long arrsize = PyArray_SIZE(arrs[0]);
+    long arrsize = PyArray_SIZE(xarg);
     // xdig and ydig are the bin indices of each value in our input x and y
     // arrays respectively. this is a cheaty version of a digitize-type
     // operation that works only because we always have regular bins.
@@ -356,7 +390,7 @@ binned_median(PyObject *self, PyObject *args) {
     long nx_uniq = PyArray_SIZE(xdig_uniqarr);
     long *xdig_uniq = (long *) PyArray_DATA(xdig_uniqarr);
     DECREF_ALL(unique, numpy);
-    double *vals = (double *) PyArray_DATA(arrs[2]);
+    double *vals = (double *) PyArray_DATA(varg);
     long x_sort_ix = 0;
     double* median = PYARRAY_AS_DOUBLES(medarg);
     for (long xix = 0; xix < nx_uniq; xix++) {
@@ -403,5 +437,5 @@ binned_median(PyObject *self, PyObject *args) {
         FREE_ALL(match_buckets, match_count, xbin_indices);
     }
     DESTROY_ALL_NDARRAYS(xdig_uniqarr, xdig_sortarr, ydig_arr, xdig_arr);
-    return Py_None;
+    Py_RETURN_NONE;
 }

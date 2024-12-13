@@ -3,13 +3,11 @@
 
 #include "api_helpers.h"
 
-PyObject* binned_count(PyObject *self, PyObject *args);
-PyObject* binned_countvals(PyObject *self, PyObject *args);
-PyObject* binned_median(PyObject *self, PyObject *args);
-PyObject* binned_min(PyObject *self, PyObject *args);
-PyObject* binned_max(PyObject *self, PyObject *args);
-PyObject* binned_minmax(PyObject *self, PyObject *args);
-PyObject* binned_sum(PyObject *self, PyObject *args);
-PyObject* binned_std(PyObject *self, PyObject *args);
+PyObject* binned_count(PyObject *, PyObject *const *, Py_ssize_t);
+PyObject* binned_countvals(PyObject *, PyObject *const *, Py_ssize_t);
+PyObject* binned_median(PyObject *, PyObject *const *, Py_ssize_t);
+PyObject* binned_minmax(PyObject *, PyObject *const *, Py_ssize_t);
+PyObject* binned_sum(PyObject *, PyObject *const *, Py_ssize_t);
+PyObject* binned_std(PyObject *, PyObject *const *, Py_ssize_t);
 
 #endif //BINNING_H

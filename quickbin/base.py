@@ -10,8 +10,6 @@ from quickbin.quickbin_core import (
     _binned_countvals,
     _binned_sum,
     _binned_median,
-    _binned_min,
-    _binned_max,
     _binned_minmax,
     _binned_std,
     OPS
@@ -38,10 +36,10 @@ def binned_unary(
     n_bins: tuple[Integral, Integral],
     binfunc: Binfunc,
     dtype: np.dtype
-):
+) -> np.ndarray:
     """
     Handler for C binning functions that populate only one array:
-    count, sum, median, min, and max.
+    count, sum, median.
     """
     result = np.zeros(n_bins[0] * n_bins[1], dtype=dtype)
     binfunc(*arrs, result, *ranges, *n_bins)
@@ -60,8 +58,8 @@ def binned_countvals(
     if oparg & OPS["mean"]:
         meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
-        meanarr = np.array([])  # should never be touched by C in this case
-    _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins, oparg)
+        meanarr = None
+    _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
     output = {}
     for name, arr in zip(("count", "sum", "mean"), (countarr, sumarr, meanarr)):
         if oparg & OPS[name]:
@@ -85,10 +83,8 @@ def binned_std(
     if oparg & OPS["mean"]:
         meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
-        meanarr = np.array([])  # should never be touched by C in this case
-    _binned_std(
-        *arrs, countarr, sumarr, meanarr, stdarr, *ranges, *n_bins, oparg
-    )
+        meanarr = None
+    _binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
     output = {}
     for name, arr in zip(
         ("count", "sum", "mean", "std"), (countarr, sumarr, meanarr, stdarr)
@@ -110,6 +106,26 @@ def binned_minmax(
     maxarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
     return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
+
+
+def binned_min(
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+) -> np.ndarray:
+    minarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    _binned_minmax(*arrs, minarr, None, *ranges, *n_bins)
+    return minarr.reshape(n_bins)
+
+
+def binned_max(
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[Real, Real, Real, Real],
+    n_bins: tuple[Integral, Integral],
+) -> np.ndarray:
+    maxarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    _binned_minmax(*arrs, None, maxarr, *ranges, *n_bins)
+    return maxarr.reshape(n_bins)
 
 
 def bin2d(
@@ -175,9 +191,9 @@ def bin2d(
     if oparg == OPS["min"] | OPS["max"]:
         return binned_minmax(arrs, ranges, n_bins)
     if oparg == OPS["min"]:
-        return binned_unary(arrs, ranges, n_bins, _binned_min, np.float64)
+        return binned_min(arrs, ranges, n_bins)
     if oparg == OPS["max"]:
-        return binned_unary(arrs, ranges, n_bins, _binned_max, np.float64)
+        return binned_max(arrs, ranges, n_bins)
     if oparg == OPS["count"]:
         return binned_unary(arrs[:2], ranges, n_bins, _binned_count, np.int64)
     if oparg == OPS["sum"]:

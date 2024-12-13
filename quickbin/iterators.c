@@ -1,7 +1,7 @@
 #include "iterators.h"
 
 bool
-init_iterface(Iterface *iter, PyArrayObject *arrays[2], int n_arrays) {
+init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
     PyArray_Descr* dtypes[n_arrays];
     npy_uint32 op_flags[n_arrays];
     for (int i = 0; i < n_arrays; i++) {
