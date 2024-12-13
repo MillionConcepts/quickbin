@@ -1,40 +1,7 @@
 #define I_WILL_CALL_IMPORT_ARRAY
 #include "binning.h"
-#include "opmask.h"
 
 #include <stdbool.h>
-
-// Expose the GH_ values to Python as a mapping from names to bits.
-static bool
-make_ops_mapping(PyObject *module) {
-    PyObject *opsdict = PyDict_New();
-    if (!opsdict)
-        return false;
-    for (const struct genhist_op_name *op = GENHIST_OP_NAMES; op->opbit; op++) {
-        PyObject *val = PyLong_FromLong(op->opbit);
-        if (!val) {
-            Py_DECREF(opsdict);
-            return false;
-        }
-        if (PyDict_SetItemString(opsdict, op->name, val)) {
-            Py_DECREF(val);
-            Py_DECREF(opsdict);
-            return false;
-        }
-        // PyDict_SetItemString *does not* take ownership of val
-        Py_DECREF(val);
-    }
-
-    PyObject *opsmap = PyDictProxy_New(opsdict);
-    Py_DECREF(opsdict);
-    if (PyModule_AddObject(module, "OPS", opsmap)) {
-        Py_DECREF(opsmap);
-        return false;
-    }
-
-    // PyModule_AddObject takes our ref to opsmap on success
-    return true;
-}
 
 static PyMethodDef
 QuickbinMethods[] = {
@@ -89,14 +56,7 @@ PyModuleDef quickbin_core_mod = {
 
 PyMODINIT_FUNC PyInit_quickbin_core(void) {
     import_array();
-    PyObject *m = PyModule_Create(&quickbin_core_mod);
-    if (!m)
-        return NULL;
-    if (!make_ops_mapping(m)) {
-        Py_DECREF(m);
-        return NULL;
-    }
-    return m;
+    return PyModule_Create(&quickbin_core_mod);
 }
 
 // dead code for reference

@@ -1,4 +1,4 @@
-from enum import Flag
+from enum import Flag, auto
 from numbers import Integral, Number, Real
 from types import new_class
 from typing import Callable, Literal, Optional, Sequence, Union
@@ -12,11 +12,20 @@ from quickbin.quickbin_core import (
     _binned_median,
     _binned_minmax,
     _binned_std,
-    OPS
 )
 
+class Ops(Flag):
+    count = auto()
+    sum = auto()
+    mean = auto()
+    std = auto()
+    median = auto()
+    min = auto()
+    max = auto()
+
+OPS = { op.name: op for op in Ops }
 OpName = Literal[tuple(OPS.keys())]
-Ops = new_class("Ops", bases=(Flag,), exec_body=lambda ns: ns.update(OPS))
+
 
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 
@@ -50,20 +59,23 @@ def binned_countvals(
     arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
     ranges: tuple[Real, Real, Real, Real],
     n_bins: tuple[Integral, Integral],
-    oparg: int
+    oparg: Ops
 ) -> dict[str, np.ndarray]:
     """Handler for C binned_countvals()."""
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
-    if oparg & OPS["mean"]:
+    if oparg & Ops.mean:
         meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
     _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
     output = {}
-    for name, arr in zip(("count", "sum", "mean"), (countarr, sumarr, meanarr)):
-        if oparg & OPS[name]:
-            output[name] = arr.reshape(n_bins)
+    for op, arr in zip(
+        (Ops.count, Ops.sum, Ops.mean),
+        (countarr, sumarr, meanarr)
+    ):
+        if oparg & op:
+            output[op.name] = arr.reshape(n_bins)
     if len(output) == 1:
         return tuple(output.values())[0]
     return output
@@ -74,23 +86,24 @@ def binned_std(
     arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
     ranges: tuple[Real, Real, Real, Real],
     n_bins: tuple[Integral, Integral],
-    oparg: int
+    oparg: Ops
 ) -> dict[str, np.ndarray]:
     """Handler for C binned_std()."""
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     stdarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
-    if oparg & OPS["mean"]:
+    if oparg & Ops.mean:
         meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
     _binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
     output = {}
-    for name, arr in zip(
-        ("count", "sum", "mean", "std"), (countarr, sumarr, meanarr, stdarr)
+    for op, arr in zip(
+        (Ops.count, Ops.sum, Ops.mean, Ops.std),
+        (countarr, sumarr, meanarr, stdarr)
     ):
-        if oparg & OPS[name]:
-            output[name] = arr.reshape(n_bins)
+        if oparg & op:
+            output[op.name] = arr.reshape(n_bins)
     if len(output) == 1:
         return tuple(output.values())[0]
     return output
@@ -132,7 +145,7 @@ def bin2d(
     x_arr: np.ndarray,
     y_arr: np.ndarray,
     val_arr: Optional[np.ndarray],
-    op: Union[OpName, Sequence[OpName]],
+    op: Union[Ops, OpName, Sequence[OpName]],
     n_bins: Union[Integral, Sequence[int]],
     bbounds: Optional[
         tuple[tuple[Number, Number], tuple[Number, Number]]
@@ -174,32 +187,54 @@ def bin2d(
                 raise ValueError("x and y values must fall within bbounds")
         ranges = (bbounds[0][0], bbounds[0][1], bbounds[1][0], bbounds[1][1])
     ranges = tuple(map(float, ranges))
-    ops = {op} if isinstance(op, str) else set(op)
-    if not set(ops).issubset(OPS.keys()):
-        raise ValueError(
-            f"Unknown operation(s) {ops.difference(OPS.keys())}. "
-            f"Valid operations are {', '.join(OPS.keys())}."
-        )
-    oparg = sum(OPS[o] for o in map(str.lower, ops))
-    if oparg & OPS["median"]:
-        if oparg != OPS["median"]:
+
+    if isinstance(op, Ops):
+        oparg = op
+    elif isinstance(op, str):
+        oparg = OPS.get(op.lower())
+        if oparg is None:
+            raise ValueError(
+                f"Unknown operation {op.lower()}. "
+                f"Valid operations are {', '.join(OPS.keys())}."
+            )
+    else:
+        oparg = Ops(0)
+        unknown = set()
+        for o in op:
+            oo = OPS.get(o.lower())
+            if oo is None:
+                unknown.add(o.lower())
+            else:
+                oparg = oparg | oo
+        if unknown:
+            s = "s" if len(unknown) > 1 else ""
+            raise ValueError(
+                f"Unknown operation{s} {', '.join(sorted(unknown))}. "
+                f"Valid operations are {', '.join(OPS.keys())}."
+            )
+
+    if not oparg:
+        raise ValueError("must request at least one operation")
+
+    if oparg & Ops.median:
+        if oparg != Ops.median:
             raise ValueError("median can only be computed alone.")
         return binned_unary(arrs, ranges, n_bins, _binned_median, np.float64)
-    if oparg == OPS["min"] | OPS["max"]:
-        if oparg & ~(OPS["min"] | OPS["max"]):
+    if oparg == Ops.min | Ops.max:
+        if oparg & ~(Ops.min | Ops.max):
             raise ValueError("min/max can only be computed alongside min/max")
-    if oparg == OPS["min"] | OPS["max"]:
+    if oparg == Ops.min | Ops.max:
         return binned_minmax(arrs, ranges, n_bins)
-    if oparg == OPS["min"]:
+    if oparg == Ops.min:
         return binned_min(arrs, ranges, n_bins)
-    if oparg == OPS["max"]:
+    if oparg == Ops.max:
         return binned_max(arrs, ranges, n_bins)
-    if oparg == OPS["count"]:
+    if oparg == Ops.count:
         return binned_unary(arrs[:2], ranges, n_bins, _binned_count, np.int64)
-    if oparg == OPS["sum"]:
+    if oparg == Ops.sum:
         return binned_unary(arrs, ranges, n_bins, _binned_sum, np.float64)
-    if oparg & OPS["std"]:
+    if oparg & Ops.std:
         return binned_std(arrs, ranges, n_bins, oparg)
-    if oparg & ~(OPS["count"] | OPS["sum"] | OPS["mean"]):
+    if oparg & ~(Ops.count | Ops.sum | Ops.mean):
         raise ValueError("Failure in binning operation selection.")
     return binned_countvals(arrs, ranges, n_bins, oparg)
