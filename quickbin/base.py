@@ -65,7 +65,9 @@ def binned_countvals(
     output = {}
     for name, arr in zip(("count", "sum", "mean"), (countarr, sumarr, meanarr)):
         if oparg & OPS[name]:
-            output[name] = arr
+            output[name] = arr.reshape(n_bins)
+    if len(output) == 1:
+        return tuple(output.values())[0]
     return output
 
 
@@ -92,7 +94,9 @@ def binned_std(
         ("count", "sum", "mean", "std"), (countarr, sumarr, meanarr, stdarr)
     ):
         if oparg & OPS[name]:
-            output[name] = arr
+            output[name] = arr.reshape(n_bins)
+    if len(output) == 1:
+        return tuple(output.values())[0]
     return output
 
 
@@ -105,7 +109,7 @@ def binned_minmax(
     minarr = np.zeros(arrs[0].size, dtype='f8')
     maxarr = np.zeros(arrs[0].size, dtype='f8')
     _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
-    return {"min": minarr, "max": maxarr}
+    return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
 
 
 def bin2d(
