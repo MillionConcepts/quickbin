@@ -1,10 +1,8 @@
-#define PY_SSIZE_T_CLEAN
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#define PY_ARRAY_UNIQUE_SYMBOL quickbin_PyArray_API
-#include <Python.h>
-#include <stdio.h>
-
+#define I_WILL_CALL_IMPORT_ARRAY
 #include "binning.h"
+#include "opmask.h"
+
+#include <stdbool.h>
 
 // Expose the GH_ values to Python as a mapping from names to bits.
 static bool
@@ -38,30 +36,8 @@ make_ops_mapping(PyObject *module) {
     return true;
 }
 
-PyObject*
-arrtest_inside(PyObject *self, PyObject *args) {
-    PyObject *xarg;
-    if (!PyArg_ParseTuple(args, "O", &xarg)) { return NULL; }
-    printf("I am attempting to create an accessable PyArrayObject\n");
-    PyArrayObject *xarr = (PyArrayObject*) PyArray_FROM_O(xarg);
-    printf("I did it\n");
-    return Py_None;
-}
-
 static PyMethodDef
 QuickbinMethods[] = {
-    {
-        "arrtest_outside",
-        (PyCFunction) arrtest_outside,
-        METH_VARARGS,
-        "Minimal ndarray access function defined in other file."
-    },
-    {
-        "arrtest_inside",
-        (PyCFunction) arrtest_inside,
-        METH_VARARGS,
-        "Minimal ndarray access function defined in this file."
-    },
     {
         "_binned_count",
         (PyCFunction) binned_count,

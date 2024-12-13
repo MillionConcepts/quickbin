@@ -1,13 +1,9 @@
 #ifndef ITERATORS_H
 #define ITERATORS_H
 
-#define PY_SSIZE_T_CLEAN
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include <numpy/arrayobject.h>
-#include <numpy/npy_math.h>
-#include <Python.h>
+#include "api_helpers.h"
+
 #include <stdbool.h>
-#include <stdio.h>
 
 typedef struct
 Iterface {

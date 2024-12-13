@@ -1,18 +1,6 @@
-#define PY_SSIZE_T_CLEAN
-#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#define PY_ARRAY_UNIQUE_SYMBOL quickbin_PyArray_API
-#define NO_IMPORT_ARRAY
 #include "binning.h"
-
-PyObject*
-arrtest_outside(PyObject *self, PyObject *args) {
-    PyObject *xarg;
-    if (!PyArg_ParseTuple(args, "O", &xarg)) { return NULL; }
-    printf("I am attempting to create an accessable PyArrayObject\n");
-    PyArrayObject *xarr = (PyArrayObject*) PyArray_FROM_O(xarg);
-    printf("I did it\n");
-    return Py_None;
-}
+#include "iterators.h"
+#include "opmask.h"
 
 static bool
 check_arrs(PyArrayObject *arrays[static 2], long n_arrays) {

@@ -3,10 +3,15 @@
 
 #define PY_SSIZE_T_CLEAN
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#define PY_ARRAY_UNIQUE_SYMBOL quickbin_PyArray_API
+
+#ifndef I_WILL_CALL_IMPORT_ARRAY
+#define NO_IMPORT_ARRAY
+#endif
+
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
 #include <Python.h>
-#include <stdio.h>
 
 // core Python CAPI shorthand
 

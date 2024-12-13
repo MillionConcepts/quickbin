@@ -29,4 +29,5 @@ static const struct genhist_op_name GENHIST_OP_NAMES[] = {
         { GH_MAX,           "max"    },
         { 0,                ""       },
 };
+
 #endif // OPMASK_H
