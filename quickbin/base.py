@@ -55,10 +55,10 @@ def binned_countvals(
     oparg: int
 ) -> dict[str, np.ndarray]:
     """Handler for C binned_countvals()."""
-    countarr = np.zeros(arrs[0].size, dtype='f8')
-    sumarr = np.zeros(arrs[0].size, dtype='f8')
+    countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     if oparg & OPS["mean"]:
-        meanarr = np.zeros(arrs[0].size, dtype='f8')
+        meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = np.array([])  # should never be touched by C in this case
     _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins, oparg)
@@ -79,11 +79,11 @@ def binned_std(
     oparg: int
 ) -> dict[str, np.ndarray]:
     """Handler for C binned_std()."""
-    countarr = np.zeros(arrs[0].size, dtype='f8')
-    sumarr = np.zeros(arrs[0].size, dtype='f8')
-    stdarr = np.zeros(arrs[0].size, dtype='f8')
+    countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    stdarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     if oparg & OPS["mean"]:
-        meanarr = np.zeros(arrs[0].size, dtype='f8')
+        meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = np.array([])  # should never be touched by C in this case
     _binned_std(
@@ -106,8 +106,8 @@ def binned_minmax(
     n_bins: tuple[Integral, Integral],
 ) -> dict[str, np.ndarray]:
     """Handler for C binned_minmax()."""
-    minarr = np.zeros(arrs[0].size, dtype='f8')
-    maxarr = np.zeros(arrs[0].size, dtype='f8')
+    minarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    maxarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
     return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
 
