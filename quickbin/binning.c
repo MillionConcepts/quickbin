@@ -82,7 +82,8 @@ arg_as_long(const char *binfunc, PyObject *const *args, Py_ssize_t n,
 
 static int
 arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
-             npy_intp insize, bool none_ok, PyArrayObject **p_array)
+             npy_intp insize, bool none_ok, PyArrayObject **p_array,
+             const npy_intp ref_itemsize, const char *ref_dtype_name)
 {
     *p_array = NULL;
     if (Py_IsNone(args[n])) {
@@ -102,8 +103,6 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
                      binfunc, n, (PyObject *)Py_TYPE(args[n]));
         return -1;
     }
-
-
     if (PyArray_NDIM(array) != 1) {
         PyErr_Format(PyExc_TypeError,
                      "%s: arg %zd must be a 1-dimensional array",
@@ -117,9 +116,85 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
         return -1;
     }
 
-    // TODO also check the element type
-
+    if (ref_dtype_name != NULL) {
+        const char *dtype_name = PyArray_DESCR(array)->typeobj->tp_name;
+        if (strcmp(dtype_name, ref_dtype_name) != 0) {
+            PyErr_Format(
+                    PyExc_TypeError,
+                    "%s: array %zd must be of type %s; got %s",
+                    binfunc, n, ref_dtype_name, dtype_name);
+            return -1;
+        }
+    }
+    npy_intp itemsize = PyArray_ITEMSIZE(array);
+    if (ref_itemsize != itemsize) {
+        PyErr_Format(PyExc_TypeError,
+                     "%s: array %zd must have %zd-byte elements; got %zd",
+                     binfunc, n, ref_itemsize, itemsize);
+        return -1;
+    }
     *p_array = array;
+    return 0;
+}
+
+static void
+double_array_bounds(PyArrayObject *arr, double bounds[static 2]) {
+    double maxval, minval;
+    PyObject *maxscalar = PyArray_Max(arr, 0, NULL);
+    PyArray_ScalarAsCtype(maxscalar, &maxval);
+    Py_DECREF(maxscalar);
+    PyObject *minscalar = PyArray_Min(arr, 0, NULL);
+    PyArray_ScalarAsCtype(minscalar, &minval);
+    Py_DECREF(minscalar);
+    bounds[0] = minval;
+    bounds[1] = maxval;
+}
+
+static int
+check_bounds (
+    const char *binfunc,
+    PyArrayObject *xarg,
+    PyArrayObject *yarg,
+    double xbounds[static 2],
+    double ybounds[static 2]
+) {
+    double xminmax[2], yminmax[2];
+    double_array_bounds(xarg, xminmax);
+    double_array_bounds(yarg, yminmax);
+    // the Python handlers set these values to NaN when no bounds were
+    // specified by the user. In this case we simply set the bounds to the
+    // min/max of the coordinate arrays plus a little slop to keep the largest
+    // values in the rightmost bin.
+    if (
+        isnan(xbounds[0])
+        || isnan(xbounds[1])
+        || isnan(ybounds[0])
+        || isnan(ybounds[1])
+    ) {
+        // TODO: It would be better to not just use the magic number 5e-15 here,
+        //  but rather base it on the resolution of the data type.
+        xbounds[0] = xminmax[0];
+        xbounds[1] = xminmax[1] + 5e-15;
+        ybounds[0] = yminmax[0];
+        ybounds[1] = yminmax[1] + 5e-15;
+        return 0;
+    }
+    // otherwise, check to make sure people didn't specify bounds inside the
+    // min/max of the input coordinates. We use the values of the x and y
+    // coordinate arrays to select indices in the output arrays, and we aren't
+    // willing to do bounds checking in the inner loop, so bounds within the
+    // the x/y coordinate ranges are memory-unsafe.
+    if (
+        xbounds[0] > xminmax[0]
+        || xbounds[1] < xminmax[1]
+        || ybounds[0] > yminmax[0]
+        || ybounds[1] < yminmax[1]
+    ) {
+        // TODO: this error message could be better
+        PyErr_Format(PyExc_ValueError, "%s: specified bounds are too small.",
+                     binfunc);
+        return -1;
+    }
     return 0;
 }
 
@@ -156,12 +231,14 @@ unpack_binfunc_args(
     }
 
     PyArrayObject *xarg, *yarg, *varg;
-    if (arg_as_array(binfunc, args, 0, -1, false, &xarg))
+    if (arg_as_array(binfunc, args, 0, -1, false, &xarg, 8, "numpy.float64"))
         return -1;
-    if (arg_as_array(binfunc, args, 1, PyArray_SIZE(xarg), false, &yarg))
+    if (arg_as_array(binfunc, args, 1, PyArray_SIZE(xarg), false, &yarg, 8,
+                    "numpy.float64"))
         return -1;
     if (n_inputs == 3) {
-        if (arg_as_array(binfunc, args, 2, PyArray_SIZE(xarg), false, &varg))
+        if (arg_as_array(binfunc, args, 2, PyArray_SIZE(xarg), false, &varg,
+                         8, NULL))
             return -1;
     } else {
         varg = NULL;
@@ -176,7 +253,6 @@ unpack_binfunc_args(
         || arg_as_long  (binfunc, args, n_inputs + n_outputs + 4, ny)) {
         return -1;
     }
-
     // output arrays are processed last because we need to know nx and
     // ny to know how big they should be
     // even if none of the outputs are _required_, at least one of them
@@ -186,7 +262,7 @@ unpack_binfunc_args(
     for (Py_ssize_t i = 0; i < n_outputs; i++) {
         if (arg_as_array(binfunc, args, n_inputs + i,
                          output_size, i >= n_required_outputs,
-                         &outputs[i])) {
+                         &outputs[i], 8, NULL)) {
             return -1;
         }
         if (outputs[i]) {
@@ -196,9 +272,10 @@ unpack_binfunc_args(
     if (!have_an_output) {
         PYRAISE(ValueError, "at least one output array should be present");
     }
-
     double xbounds[2] = {xmin, xmax};
     double ybounds[2] = {ymin, ymax};
+    if (check_bounds(binfunc, xarg, yarg, xbounds, ybounds))
+        return -1;
     PyArrayObject *arrs[3] = { xarg, yarg, varg };
     if (!init_iterface(iter, arrs, n_inputs)) {
         PYRAISE(PyExc_RuntimeError, "Binning setup failed.");

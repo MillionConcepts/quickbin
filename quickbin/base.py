@@ -35,31 +35,25 @@ def _set_up_bounds(
     y_arr: np.ndarray
 ) -> tuple[float, float, float, float]:
     """
-    Helper function for bin2d(). Checks and formats binning region bounds
-    specifications. Pointless to call this directly.
+    Helper function for bin2d(). Formats binning region bound specifications.
+    Pointless to call this directly.
+
+    Note:
+        The C code has responsibility for actual bounds checks. This is so that
+        we don't have to calculate the min/max of x_arr and y_arr twice, which
+        can be expensive on large arrays.
+
+        If the user doesn't specify bounds, we set them to NaN here, which cues
+        the C code to assign them based on x/y array min/max values.
     """
-    xbounds, ybounds = (x_arr.min(), x_arr.max()), (y_arr.min(), y_arr.max())
-    # TODO: push this off to C.
     if bbounds is None:
-        ranges = (
-            float(xbounds[0]),
-            float(xbounds[1] + np.finfo('f8').resolution * 5),
-            float(ybounds[0]),
-            float(ybounds[1] + np.finfo('f8').resolution * 5)
-        )
+        ranges = (float('nan'),) * 4
     elif len(bbounds) != 2:
         raise ValueError(
             "bbounds must be a sequence like [[xmin, xmax], [ymin, ymax]]"
         )
     else:
-        # TODO: also push this off to C.
-        for (rmin, rmax), (amin, amax) in zip(bbounds, (xbounds, ybounds)):
-            if (rmin > amin) or (rmax < amax):
-                raise ValueError("x and y values must fall within bbounds")
-        ranges = tuple(
-            float(f) for f in
-            (bbounds[0][0], bbounds[0][1], bbounds[1][0], bbounds[1][1])
-        )
+        ranges = tuple(map(float, (*bbounds[0], *bbounds[1])))
     return ranges
 
 
@@ -81,7 +75,7 @@ def _set_up_xyval(
             raise TypeError("x and y arrays may not be none")
         elif arr is None and op != OPS["count"]:
             raise TypeError("val array may only be none for 'count'")
-        elif arr.dtype != np.float64:
+        elif arr is not None and arr.dtype != np.float64:
             arrs[i] = arr.astype(np.float64)
     return tuple(arrs[:2]) if op == OPS["count"] else tuple(arrs)
 

@@ -48,7 +48,7 @@ PyModuleDef quickbin_core_mod = {
     "quickbin_core",   /* name of module */
 
     "This module contains pointy-end implementations of binning functions "
-    "exposed at high level by `quickbin.base.bin2d()`.\n"
+    "exposed at high level by `quickbin.base.bin2d()`.\n\n"
     "Caution:\n"
     "    In normal usage, these functions should only be called by the\n"
     "    handler functions in `quickbin._binning_handlers`, which should\n"

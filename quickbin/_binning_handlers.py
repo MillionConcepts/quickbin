@@ -3,7 +3,7 @@ Handlers for C-side binning functions.
 
 Caution:
     In normal usage, the functions in this module should only be called by
-    `quickbin.base.bin2d()`. Skipping the setup steps performed there may
+    `quickbin.base.bin2d()`. Skipping the setup steps it performs may
     produce undesired results.
 """
 from functools import partial
@@ -70,10 +70,10 @@ def binned_countvals(
 
 # TODO, maybe: Perhaps a bit redundant with binned_countvals().
 def binned_std(
-        arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
-        ranges: tuple[float, float, float, float],
-        n_bins: tuple[int, int],
-        ops: Ops
+    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    ranges: tuple[float, float, float, float],
+    n_bins: tuple[int, int],
+    ops: Ops
 ) -> np.ndarray | dict[str, np.ndarray]:
     """
     Handler for C binned_std().
