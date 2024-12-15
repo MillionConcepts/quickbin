@@ -11,7 +11,12 @@ quickbin_core = Extension(
     ]
 )
 
+quickbin_test_utils = Extension(
+    "quickbin.tests.quickbin_test_utils",
+    sources = ["quickbin/tests/quickbin_test_utils.c"]
+)
+
 setup(
-    ext_modules=[quickbin_core],
+    ext_modules=[quickbin_core, quickbin_test_utils],
     include_dirs=[np.get_include()],
 )
