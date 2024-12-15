@@ -1,3 +1,8 @@
+"""
+Simple validation tests of bin2d() outputs at various array sizes for all valid
+op combinations.
+"""
+
 import gc
 from functools import partial, reduce
 from itertools import chain, combinations, product
@@ -8,71 +13,73 @@ import numpy as np
 import psutil
 import pytest
 
-from quickbin import bin2d
-from quickbin.base import OPS
+from quickbin import bin2d, Ops
+from quickbin.definitions import check_ops
 
 N_TILE_OPTIONS = np.arange(50, 250, 50)
 TILESIZE_OPTIONS = np.arange(50, 10050, 2000)
 
 
 RNG = np.random.default_rng()
-COUNTSUM_OPS = ("count", "sum", "mean", "std")
+COUNTSUM_OPS = (Ops.count, Ops.sum, Ops.mean, Ops.std)
 VALID_COMBOS = tuple(
-    chain(*[combinations(COUNTSUM_OPS, i) for i in range(2, 5)])
-)
+    map(sum, chain(*[combinations(COUNTSUM_OPS, i) for i in range(2, 5)]))
+) + (Ops.min | Ops.max,)
 
 
 def _check_against_tiles(res, xix, yix, tiles, op):
-    if op in ("median", "mean", "std", "sum", "min", "max"):
-        stack = np.hstack([getattr(np, op)(t) for t in tiles])
-    elif op == "count":
+    check_ops(op)
+    if op == Ops.count:
         stack = np.hstack(np.full(len(tiles), len(tiles[0])))
     else:
-        raise ValueError(f"unknown test operation {op}")
+        stack = np.hstack([getattr(np, op.name)(t) for t in tiles])
     return np.allclose(res[xix, yix], stack)
 
 
-def _make_test_tiles(n_tiles, tilesize):
-    # TODO: non-identical tiles
-    tiles = [
-        (RNG.random(tilesize) - 0.5) * RNG.integers(1, 10) ** 10
-        for _ in range(n_tiles)
-    ]
-    xix, yix = np.arange(0, n_tiles), np.arange(0, n_tiles)
-    np.random.shuffle(xix)
-    np.random.shuffle(yix)
+def _make_test_tiles(n_tiles, tilesize, op):
+    if op != Ops.count:
+        tiles = [
+            (RNG.random(tilesize) - 0.5) * RNG.integers(1, 10) ** 10
+            for _ in range(n_tiles)
+        ]
+    else:
+        # NOTE: this is a goofy placeholder to not pass extra arguments to
+        # _check_against_tiles
+        tiles = [[None for _ in range(tilesize)] for _ in range(n_tiles)]
+    xix, yix = np.arange(n_tiles), np.arange(0, n_tiles)
     return xix, yix, tiles
 
 
 def _simpletest(n_tiles, op, tilesize):
-    xix, yix, tiles = _make_test_tiles(n_tiles, tilesize)
-    res = bin2d(
-        np.repeat(xix, tilesize),
-        np.repeat(yix, tilesize),
-        np.hstack(tiles),
-        op,
-        n_tiles
-    )
+    xix, yix, tiles = _make_test_tiles(n_tiles, tilesize, op)
+    # TODO, maybe: non-repeating coords. it becomes slow to check against naive
+    #  numpy operations, though, which is sort of the point here.
+    np.random.shuffle(xix)
+    np.random.shuffle(yix)
+    xarr = np.repeat(xix, tilesize)
+    yarr = np.repeat(yix, tilesize)
+    varr = np.hstack(tiles) if op != Ops.count else None
+    res = bin2d(xarr, yarr, varr, op, n_tiles)
     return bool(_check_against_tiles(res, xix, yix, tiles, op))
 
 
 # TODO: replace / supplement this stuff with hypothesize
 
-@pytest.mark.parametrize("op", OPS)
+@pytest.mark.parametrize("op", Ops)
 def test_op_simple(op):
     results = [
         _simpletest(n_tiles, op, tilesize)
         for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS)
     ]
     if len(failed := tuple(filter(lambda r: r is False, results))) > 0:
-        raise ValueError(f"{len(failed)} failed value comparisons")
+        raise ValueError(f"{len(failed)} failed value comps for {op.name}")
 
 
 @pytest.mark.parametrize("ops", VALID_COMBOS)
 def test_op_combo(ops):
-    n_failed = 0
+    n_failed, ops = 0, Ops(ops)
     for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS):
-        xix, yix, tiles = _make_test_tiles(n_tiles, tilesize)
+        xix, yix, tiles = _make_test_tiles(n_tiles, tilesize, ops)
         res = bin2d(
             np.repeat(xix, tilesize),
             np.repeat(yix, tilesize),
@@ -80,11 +87,11 @@ def test_op_combo(ops):
             ops,
             n_tiles
         )
-        for op in ops:
-            if _check_against_tiles(res[op], xix, yix, tiles, op) is False:
+        for op in filter(lambda op: ops & op, list(Ops)):
+            if _check_against_tiles(res[op.name], xix, yix, tiles, op) is False:
                 n_failed += 1
     if n_failed > 0:
-        raise ValueError(f"{n_failed} failed value comparisons")
+        raise ValueError(f"{n_failed} failed value comps for {ops.name}")
 
 
 # The following may be too crude / non-portable an idea to work at all, and is

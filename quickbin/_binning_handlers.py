@@ -1,5 +1,5 @@
 """
-Handlers for C-side binning functions.
+Handlers for C-layer binning functions.
 
 Caution:
     In normal usage, the functions in this module should only be called by
@@ -58,8 +58,8 @@ def binned_countvals(
     _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
     output = {}
     for op, arr in zip(
-            (Ops.count, Ops.sum, Ops.mean),
-            (countarr, sumarr, meanarr)
+        (Ops.count, Ops.sum, Ops.mean),
+        (countarr, sumarr, meanarr)
     ):
         if ops & op:
             output[op.name] = arr.reshape(n_bins)
@@ -116,7 +116,7 @@ def binned_minmax(
     if ops & Ops.max:
         maxarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
-    if ops == Ops.min & Ops.max:
+    if ops == Ops.min | Ops.max:
         return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
     return next(
         filter(lambda arr: arr is not None, (minarr, maxarr))
@@ -141,8 +141,9 @@ the many possible permutations of count, sum, mean, and std (see `ops2binfunc`).
 
 def ops2binfunc(ops: Ops) -> Callable:
     """
-    Given a valid opword, return a corresponding binning handler function,
+    Given a valid opword return a corresponding binning handler function,
     partially evaluated with appropriate arguments for your convenience.
+    Preferably, this should be prece be called first
     """
     if ops in OPWORD_BINFUNC_MAP.keys():
         return OPWORD_BINFUNC_MAP[ops]

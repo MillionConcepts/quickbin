@@ -6,6 +6,7 @@ from quickbin._binning_handlers import binned_minmax, binned_std, binned_unary
 from quickbin.quickbin_core import _binned_count, _binned_sum
 
 
+# NOTE: this check happens in the C layer
 def test_bad_bounds():
     xarr = np.arange(0, 10)
     yarr = np.arange(0, 10)
@@ -24,6 +25,7 @@ def _check_op_fails(ops: Ops, exc_msg: str):
         pass
 
 
+# NOTE: this check happens _immediately_ on entry to bin2d()
 def test_bad_ops():
     _check_op_fails(
         Ops.count | Ops.median, "Should not be able to compute count and median"
@@ -47,6 +49,7 @@ def _check_call_fails(
         )
 
 
+# NOTE: these checks happen in the C layer
 def test_bad_arrays():
     xarr = np.arange(100, dtype=np.float64)
     yarr = np.arange(100, dtype=np.float64)

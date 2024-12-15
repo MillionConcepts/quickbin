@@ -3,7 +3,7 @@ This module contains `bin2d()` and subroutines. `bin2d()` is the on-label
 entry point for most of `quickbin`'s functionality.
 """
 from numbers import Integral, Real
-from typing import Optional, Sequence, Union
+from typing import Collection, Optional, Sequence, Union
 
 import numpy as np
 
@@ -31,8 +31,6 @@ def _set_up_bins(
 
 def _set_up_bounds(
     bbounds: Optional[tuple[tuple[Real, Real], tuple[Real, Real]]],
-    x_arr: np.ndarray,
-    y_arr: np.ndarray
 ) -> tuple[float, float, float, float]:
     """
     Helper function for bin2d(). Formats binning region bound specifications.
@@ -84,7 +82,7 @@ def bin2d(
     x_arr: np.ndarray,
     y_arr: np.ndarray,
     val_arr: Optional[np.ndarray],
-    ops: Union[OpName, Sequence[OpName], Integral, Ops],
+    ops: Union[OpName, Collection[OpName], Integral, Ops],
     n_bins: Union[Integral, Sequence[Integral]],
     bbounds: Optional[tuple[tuple[Real, Real], tuple[Real, Real]]] = None
 ) -> dict[str, np.ndarray] | np.ndarray:
@@ -135,6 +133,6 @@ def bin2d(
     ops = opspec2ops(ops)
     arrs = _set_up_xyval(ops, x_arr, y_arr, val_arr)
     n_bins = _set_up_bins(n_bins)
-    ranges = _set_up_bounds(bbounds, x_arr, y_arr)
+    ranges = _set_up_bounds(bbounds)
     # TODO: return dict w/Ops or int keys if Ops / int passed for opspec
     return ops2binfunc(ops)(arrs, ranges, n_bins)
