@@ -46,4 +46,4 @@ def test_bin2d_refalarm_leak():
     alarm = RefAlarm(verbosity="quiet")
     with alarm.context():
         _binned_std(*in_arrs, *out_arrs, *ranges, 10, 10)
-    assert len(alarm.refcaches['default'][0][0]['mismatches'] == 0)
+    assert len(alarm.refcaches['default'][0][0]['mismatches']) == 0
