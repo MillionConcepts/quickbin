@@ -39,6 +39,12 @@ QuickbinMethods[] = {
         METH_FASTCALL,
         "Binned median function."
     },
+    {
+        "_binned_median_2",
+        (PyCFunction) binned_median_2,
+        METH_FASTCALL,
+        "Test binned median function."
+    },
     {NULL, NULL, 0, NULL}
 };
 
@@ -64,4 +70,9 @@ PyModuleDef quickbin_core_mod = {
 PyMODINIT_FUNC PyInit_quickbin_core(void) {
     import_array();
     return PyModule_Create(&quickbin_core_mod);
+}
+
+int
+main() {
+    return 0;
 }

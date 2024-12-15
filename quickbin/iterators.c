@@ -9,9 +9,9 @@ init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
         op_flags[i] = NPY_ITER_READONLY;
     }
     iter->iter = NpyIter_AdvancedNew(
-            n_arrays, arrays, NPY_ITER_EXTERNAL_LOOP | NPY_ITER_BUFFERED,
-            NPY_KEEPORDER, NPY_SAFE_CASTING, op_flags, dtypes, -1, NULL,
-            NULL, 0
+        n_arrays, arrays, NPY_ITER_EXTERNAL_LOOP | NPY_ITER_BUFFERED,
+        NPY_KEEPORDER, NPY_SAFE_CASTING, op_flags, dtypes, -1, NULL,
+        NULL, 0
     );
     if (! iter->iter) {
         PyErr_SetString(PyExc_RuntimeError, "Couldn't construct iterator");
@@ -43,6 +43,8 @@ init_histspace(
     space->yscl = (double) ny / (ybounds[1] - ybounds[0]);
     space->xmin = xbounds[0];
     space->ymin = ybounds[0];
+    space->xmax = xbounds[1];
+    space->ymax = ybounds[1];
     space->nx = nx;
     space->ny = ny;
 }

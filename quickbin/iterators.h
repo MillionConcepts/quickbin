@@ -27,6 +27,8 @@ Histspace {
     double yscl;
     double xmin;
     double ymin;
+    double xmax;
+    double ymax;
     long nx;
     long ny;
 } Histspace;
@@ -102,9 +104,9 @@ for_nditer_step(
 
 static inline bool
 for_nditer_step_count(
-        long indices[static 2],
-        Iterface *iter,
-        const Histspace *space
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space
 ) {
     while (iter->size == 0) {
         if (indices[0] == -1 && indices[1] == -1) {

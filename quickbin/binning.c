@@ -421,6 +421,142 @@ binned_minmax(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     Py_RETURN_NONE;
 }
 
+static inline bool
+for_nditer_step_reset(
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space,
+    double *val
+) {
+    while (iter->size == 0) {
+        // A little kludge:
+        // if indices[] == { -1, -1 , -1}, then we are before the very first
+        // iteration and we should *not* call iternext.
+        // NOTE: it is possible for *iter->sizep to be zero, hence the
+        // while loop.
+        if (indices[0] == -1 && indices[1] == -1) {
+            indices[1] = 0;
+        } else if (!iter->iternext(iter->iter)) {
+            char* msg;
+            NpyIter_Reset(iter->iter, &msg);
+            return false;
+        }
+        iter->size = *iter->sizep;
+    }
+    hist_index(iter, space, indices);
+    *val = *(double *) iter->data[2];
+    iter->size -= 1;
+    stride(iter);
+    return true;
+}
+
+#define FOR_NDITER_RESET(ITER, SPACE, IXS, VAL)   \
+    for (long IXS[2] = {-1, -1};       \
+    for_nditer_step_reset(IXS, ITER, SPACE, VAL); \
+)
+
+typedef struct MPivot {
+    long count;
+    double low;
+    double mid;
+    double high;
+    long target;
+    bool found;
+    double med_found;
+} MPivot;
+
+static inline bool
+all_medians_found(const MPivot **pivots, long nbins) {
+    for (long i = 0; i < nbins; i++) {
+        if (pivots[i]->found == false) return false;
+    }
+    return true;
+}
+
+
+#define MEDIAN_SLOP 1e-8
+
+static void
+recompute_pivots(MPivot *const *pivots, const long n) {
+    for (long i = 0; i < n; i++) {
+        if (pivots[i]->high - pivots[i]->low < MEDIAN_SLOP) {
+            pivots[i]->found = true;
+            pivots[i]->med_found = pivots[i]->mid;
+            continue;
+        } else if (pivots[i]->target < pivots[i]->count) {
+            pivots[i]->high = pivots[i]->mid;
+        } else {
+            pivots[i]->low = pivots[i]->mid;
+        }
+        pivots[i]->count = 0;
+        pivots[i]->mid = (
+            pivots[i]->high - (pivots[i]->high - pivots[i]->low) / 2.0
+        );
+    }
+}
+
+PyObject*
+binned_median_2(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
+    // TODO: there may be unnecessary copies happening here
+    long nx, ny;
+    Iterface iter;
+    Histspace space;
+    PyArrayObject *medarg;
+    if (unpack_binfunc_args(__func__, args, n_args, 3, 1, 1,
+                            &iter, &space, &nx, &ny, &medarg)) {
+        return NULL;
+    }
+    double valbounds[2];
+    double_array_bounds((PyArrayObject*) args[2], valbounds);
+    double *median = PYARRAY_AS_DOUBLES(medarg);
+    Iterface countiter;
+    // if we get to this point these have already been validated
+    PyArrayObject *xarr = (PyArrayObject *)PyArray_FROM_O(args[0]);
+    PyArrayObject *yarr = (PyArrayObject *)PyArray_FROM_O(args[1]);
+    PyArrayObject *arrs[2] = {xarr, yarr};
+    if (!init_iterface(&countiter, arrs, 2)) {
+        PYRAISE(PyExc_RuntimeError, "Bin counting setup failed.");
+    }
+    long *bincounts = calloc(sizeof(long), nx * ny);
+    FOR_NDITER_COUNT (&countiter, &space, indices) {
+        if (indices[0] >= 0) bincounts[indices[1] + ny * indices[0]] += 1;
+    }
+    MPivot **pivots = malloc(sizeof(MPivot*) * nx * ny);
+    for (long i = 0; i < nx * ny; i++) {
+        pivots[i] = malloc(sizeof(MPivot));
+        if (bincounts[i] == 0) {
+            pivots[i]->found = true;
+            pivots[i]->med_found = NAN;
+            pivots[i]->mid = NAN;
+            pivots[i]->count = 0;
+        } else {
+            pivots[i]->high = valbounds[1];
+            pivots[i]->low = valbounds[0];
+            pivots[i]->mid = (valbounds[1] - valbounds[0]) / 2;
+            pivots[i]->found = false;
+            pivots[i]->target = bincounts[i] / 2 + (bincounts[i] + 1) % 2;
+            pivots[i]->count = 0;
+        }
+    }
+    free(bincounts);
+    double val;
+    while (all_medians_found((const MPivot **) pivots, nx * ny) == false) {
+        FOR_NDITER_RESET(&iter, &space, indices, &val) {
+            MPivot *pivot = pivots[indices[1] + ny * indices[0]];
+            if (pivot->found) continue;
+            if (val <= pivot->mid) pivot->count += 1;
+        }
+        recompute_pivots(pivots, nx * ny);
+    }
+    NpyIter_Deallocate(iter.iter);
+    for (long i = 0; i < nx * ny; i++) {
+        median[i] = pivots[i]->med_found;
+        free(pivots[i]);
+    }
+    free(pivots);
+    Py_RETURN_NONE;
+}
+
 PyObject*
 binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     // TODO: there may be unnecessary copies happening here
