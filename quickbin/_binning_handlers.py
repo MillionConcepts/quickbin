@@ -116,16 +116,16 @@ def binned_minmax_handler(
     ops: Ops
 ) -> dict[str, NDArray[np.float64]]:
     """Handler for C binned_minmax()."""
-    minarr, maxarr = None, None
+    minarr, maiarr = None, None
     if ops & Ops.min:
         minarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.max:
-        maxarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
-    binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
+        maiarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
+    binned_minmax(*arrs, minarr, maiarr, *ranges, *n_bins)
     if ops == Ops.min | Ops.max:
-        return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
+        return {"min": minarr.reshape(n_bins), "max": maiarr.reshape(n_bins)}
     return next(
-        filter(lambda arr: arr is not None, (minarr, maxarr))
+        filter(lambda arr: arr is not None, (minarr, maiarr))
     ).reshape(n_bins)
 
 

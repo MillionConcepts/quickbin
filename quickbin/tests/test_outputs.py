@@ -27,13 +27,13 @@ VALID_COMBOS = tuple(
 ) + (Ops.min | Ops.max,)
 
 
-def _check_against_tiles(res, xix, yix, tiles, op):
+def _check_against_tiles(res, iix, jix, tiles, op):
     check_ops(op)
     if op == Ops.count:
         stack = np.hstack(np.full(len(tiles), len(tiles[0])))
     else:
         stack = np.hstack([getattr(np, op.name)(t) for t in tiles])
-    return np.allclose(res[xix, yix], stack)
+    return np.allclose(res[iix, jix], stack)
 
 
 def _make_test_tiles(n_tiles, tilesize, op):
@@ -46,21 +46,21 @@ def _make_test_tiles(n_tiles, tilesize, op):
         # NOTE: this is a goofy placeholder to not pass extra arguments to
         # _check_against_tiles
         tiles = [[None for _ in range(tilesize)] for _ in range(n_tiles)]
-    xix, yix = np.arange(n_tiles), np.arange(0, n_tiles)
-    return xix, yix, tiles
+    iix, jix = np.arange(n_tiles), np.arange(0, n_tiles)
+    return iix, jix, tiles
 
 
 def _simpletest(n_tiles, op, tilesize):
-    xix, yix, tiles = _make_test_tiles(n_tiles, tilesize, op)
+    iix, jix, tiles = _make_test_tiles(n_tiles, tilesize, op)
     # TODO, maybe: non-repeating coords. it becomes slow to check against naive
     #  numpy operations, though, which is sort of the point here.
-    np.random.shuffle(xix)
-    np.random.shuffle(yix)
-    xarr = np.repeat(xix, tilesize)
-    yarr = np.repeat(yix, tilesize)
+    np.random.shuffle(iix)
+    np.random.shuffle(jix)
+    iarr = np.repeat(iix, tilesize)
+    jarr = np.repeat(jix, tilesize)
     varr = np.hstack(tiles) if op != Ops.count else None
-    res = bin2d(xarr, yarr, varr, op, n_tiles)
-    return bool(_check_against_tiles(res, xix, yix, tiles, op))
+    res = bin2d(iarr, jarr, varr, op, n_tiles)
+    return bool(_check_against_tiles(res, iix, jix, tiles, op))
 
 
 # TODO: replace / supplement this stuff with hypothesize
@@ -79,16 +79,16 @@ def test_op_simple(op):
 def test_op_combo(ops):
     n_failed, ops = 0, Ops(ops)
     for tilesize, n_tiles in product(TILESIZE_OPTIONS, N_TILE_OPTIONS):
-        xix, yix, tiles = _make_test_tiles(n_tiles, tilesize, ops)
+        iix, jix, tiles = _make_test_tiles(n_tiles, tilesize, ops)
         res = bin2d(
-            np.repeat(xix, tilesize),
-            np.repeat(yix, tilesize),
+            np.repeat(iix, tilesize),
+            np.repeat(jix, tilesize),
             np.hstack(tiles),
             ops,
             n_tiles
         )
         for op in filter(lambda op: ops & op, list(Ops)):
-            if _check_against_tiles(res[op.name], xix, yix, tiles, op) is False:
+            if _check_against_tiles(res[op.name], iix, jix, tiles, op) is False:
                 n_failed += 1
     if n_failed > 0:
         raise ValueError(f"{n_failed} failed value comps for {ops.name}")
@@ -122,14 +122,14 @@ def test_op_combo(ops):
 #     basemem = proc.memory_info().rss
 #     print(basemem)
 #     for i in range(TMLC_ITERATIONS):
-#         xarr = RNG.random(TMLC_INPUT_SIZE)
-#         yarr = RNG.random(TMLC_INPUT_SIZE)
+#         iarr = RNG.random(TMLC_INPUT_SIZE)
+#         jarr = RNG.random(TMLC_INPUT_SIZE)
 #         varr = RNG.random(TMLC_INPUT_SIZE)
-#         _result = bin2d(xarr, yarr, varr, op, TMLC_BINSIZE)
+#         _result = bin2d(iarr, jarr, varr, op, TMLC_BINSIZE)
 #         # del _result
 #         # import time
 #         # time.sleep(1)
-#         del xarr, yarr, varr, _result
+#         del iarr, jarr, varr, _result
 #         # gc.collect()
 #         # this slop of 60 MB is intended to give a little grace for stuff
 #         # still allocated to the process for some reason, Python objects not
@@ -157,19 +157,19 @@ def test_op_combo(ops):
 #     print(basemem)
 #     ops = iter(("sum", "count", "sum", "count2", "count", "sum"))
 #     for op in ops:
-#         xarr = RNG.random(TMLC_INPUT_SIZE)
-#         yarr = RNG.random(TMLC_INPUT_SIZE)
+#         iarr = RNG.random(TMLC_INPUT_SIZE)
+#         jarr = RNG.random(TMLC_INPUT_SIZE)
 #         print(op)
 #         if op == "count2":
 #             varr = None
 #             op = "count"
 #         else:
 #             varr = RNG.random(TMLC_INPUT_SIZE)
-#         _result = bin2d(xarr, yarr, varr, op, TMLC_BINSIZE)
+#         _result = bin2d(iarr, jarr, varr, op, TMLC_BINSIZE)
 #         # del _result
 #         # import time
 #         # time.sleep(1)
-#         del xarr, yarr, varr, _result
+#         del iarr, jarr, varr, _result
 #         # gc.collect()
 #         # this slop of 60 MB is intended to give a little grace for stuff
 #         # still allocated to the process for some reason, Python objects not

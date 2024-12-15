@@ -38,27 +38,27 @@ def _set_up_bounds(
 
     Note:
         The C code has responsibility for actual bounds checks. This is so that
-        we don't have to calculate the min/max of x_arr and y_arr twice, which
+        we don't have to calculate the min/max of i_arr and j_arr twice, which
         can be expensive on large arrays.
 
         If the user doesn't specify bounds, we set them to NaN here, which cues
-        the C code to assign them based on x/y array min/max values.
+        the C code to assign them based on i/j array min/max values.
     """
     if bbounds is None:
         ranges = (float('nan'),) * 4
     elif len(bbounds) != 2:
         raise ValueError(
-            "bbounds must be a sequence like [[xmin, xmax], [ymin, ymax]]"
+            "bbounds must be a sequence like [[imin, imax], [jmin, jmax]]"
         )
     else:
         ranges = tuple(map(float, (*bbounds[0], *bbounds[1])))
     return ranges
 
 
-def _set_up_xyval(
+def _set_up_ijval(
     op: Ops,
-    x_arr: np.ndarray,
-    y_arr: np.ndarray,
+    i_arr: np.ndarray,
+    j_arr: np.ndarray,
     val_arr: Optional[np.ndarray]
 ) -> (
     tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray]
@@ -67,7 +67,7 @@ def _set_up_xyval(
     Helper function for bin2d(). Checks and regularizes array types and
     presence. Pointless to call this directly.
     """
-    arrs = [x_arr, y_arr, val_arr]
+    arrs = [i_arr, j_arr, val_arr]
     for i, arr in enumerate(arrs):
         if arr is None and i != 2:
             raise TypeError("x and y arrays may not be none")
@@ -79,8 +79,8 @@ def _set_up_xyval(
 
 
 def bin2d(
-    x_arr: np.ndarray,
-    y_arr: np.ndarray,
+    i_arr: np.ndarray,
+    j_arr: np.ndarray,
     val_arr: Optional[np.ndarray],
     ops: Union[OpName, Collection[OpName], Integral, Ops],
     n_bins: Union[Integral, Sequence[Integral]],
@@ -94,13 +94,35 @@ def bin2d(
     simultaneously for efficiency, as may any combination of count, sum, mean,
     and std.
 
+    Note:
+        This can be used as a nearly drop-in replacement for
+        `scipy.stats.binned_statistic_2d()`. Major differences are:
+            1. It can be used to compute multiple statistics at once (see below)
+            2. It does not return a `BinnedStatistic2dResult` object, but
+               rather an `np.ndarray` (if computing one statistic) or a
+               `dict[str, np.ndarray]` (if computing multiple statistics).
+            3. It does not explicitly compute and return bin edges. If needed,
+               you can calculate them as a simple regular partition of the
+               space. (They should be identical to `binned_statistic_2d()`'s
+               down to floating-point error.)
+
+    Note:
+        Similar functions that interface with numpy (including
+        `binned_statistic_2d()`) sometimes call their first two arguments "x"
+        and "y", but map them to the first and second axes respectively.
+        Because numpy uses (i, j) / (y, x) / row-major axis order,
+        this maps arguments named "x" to the y axis and arguments named "y"
+        to the x axis. We find that using "x" and "y" in this way creates
+        confusion. We have given "i" and "j" identifiers to the arguments
+        in order to emphasize that they map to the first and second axes. The
+        behavior is identical.
+
     Args:
-        x_arr: 1-D ndarray of x-coordinate values.
-        y_arr: 1-D ndarray of y-coordinate values. Must have the same size as
-            x_arr.
+        i_arr: 1-D ndarray of coordinates to bin along the first axis.
+        j_arr: 1-D ndarray of coordinates to bin along the second axis.
         val_arr: 1-D ndarray of values. For a solo "count" operation, this may
             be None (and will be ignored in any case). If present, it must
-            have the same length as x_arr and y_arr.
+            have the same length as i_arr and j_arr.
         ops: Specification for statistical operation to perform.
             Legal formats are:
                 1. a single string (e.g. `"count"`)
@@ -117,21 +139,17 @@ def bin2d(
             sequence of two integers, which specifies arrays of shape
             `(n_bins[0], n_bins[1])`.
         bbounds: Optional restricted bounds specification, like
-            `[[xmin, xmax], [ymin, ymax]]`. If not given, uses the min/max
-            values of `x_arr` and `y_arr`.
+            `[[imin, imax], [jmin, jmax]]`. If not given, uses the min/max
+            values of `i_arr` and `j_arr`.
 
     Returns:
         If `ops` specifies a single statistic (e.g. `ops="count"`),
         returns a single `ndarray`. If `opspec` specifies more than one
         statistic (e.g. `opspec=("min", "max")`), returns a `dict` like
         `"statistic_name": ndarray for that statistic`.
-
-    Note:
-        Can be used in most cases as a drop-in replacement for
-        `scipy.stats.binned_statistic_2d()`.
     """
     ops = opspec2ops(ops)
-    arrs = _set_up_xyval(ops, x_arr, y_arr, val_arr)
+    arrs = _set_up_ijval(ops, i_arr, j_arr, val_arr)
     n_bins = _set_up_bins(n_bins)
     ranges = _set_up_bounds(bbounds)
     # TODO: return dict w/Ops or int keys if Ops / int passed for opspec

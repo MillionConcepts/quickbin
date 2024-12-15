@@ -18,23 +18,23 @@ Iterface {
 
 static inline void
 stride(Iterface *iter) {
-    for (int i = 0; i < iter->n; i++) iter->data[i] += iter->stride[i];
+    for (int ix = 0; ix < iter->n; ix++) iter->data[ix] += iter->stride[ix];
 }
 
 typedef struct
 Histspace {
-    double xscl;
-    double yscl;
-    double xmin;
-    double ymin;
-    long nx;
-    long ny;
+    double iscl;
+    double jscl;
+    double imin;
+    double jmin;
+    long ni;
+    long nj;
 } Histspace;
 
 static inline void
 hist_index(const Iterface *iter, const Histspace *space, long indices[static 2]) {
-    double tx = *(double *) iter->data[0];
-    double ty = *(double *) iter->data[1];
+    double ti = *(double *) iter->data[0];
+    double tj = *(double *) iter->data[1];
     // TODO, maybe: make the bounds check modal instead of simply enforcing
     //  bounds range up top
 
@@ -47,15 +47,15 @@ hist_index(const Iterface *iter, const Histspace *space, long indices[static 2])
     //    long iy = -1;
     // -- END DEAD BOUNDS CHECK CODE --
 
-    long ix, iy;
+    long ii, ij;
 //    if (inbounds) {  // DEAD
-    ix = (tx - space->xmin) * space->xscl;
-    iy = (ty - space->ymin) * space->yscl;
-    if (ix == space->nx) ix -= 1;
-    if (iy == space->ny) iy -= 1;
+    ii = (ti - space->imin) * space->iscl;
+    ij = (tj - space->jmin) * space->jscl;
+    if (ii == space->ni) ii -= 1;
+    if (ij == space->nj) ij -= 1;
 //    }  // DEAD
-    indices[0] = ix;
-    indices[1] = iy;
+    indices[0] = ii;
+    indices[1] = ij;
 }
 
 void init_histspace(

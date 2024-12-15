@@ -4,9 +4,9 @@ bool
 init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
     PyArray_Descr* dtypes[n_arrays];
     npy_uint32 op_flags[n_arrays];
-    for (int i = 0; i < n_arrays; i++) {
-        dtypes[i] = PyArray_DESCR(arrays[i]);
-        op_flags[i] = NPY_ITER_READONLY;
+    for (int ix = 0; ix < n_arrays; ix++) {
+        dtypes[ix] = PyArray_DESCR(arrays[ix]);
+        op_flags[ix] = NPY_ITER_READONLY;
     }
     iter->iter = NpyIter_AdvancedNew(
             n_arrays, arrays, NPY_ITER_EXTERNAL_LOOP | NPY_ITER_BUFFERED,
@@ -34,15 +34,15 @@ init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
 void
 init_histspace(
     Histspace *space,
-    const double xbounds[static 2],
-    const double ybounds[static 2],
-    const long nx,
-    const long ny
+    const double ibounds[static 2],
+    const double jbounds[static 2],
+    const long ni,
+    const long nj
 ) {
-    space->xscl = (double) nx / (xbounds[1] - xbounds[0]);
-    space->yscl = (double) ny / (ybounds[1] - ybounds[0]);
-    space->xmin = xbounds[0];
-    space->ymin = ybounds[0];
-    space->nx = nx;
-    space->ny = ny;
+    space->iscl = (double) ni / (ibounds[1] - ibounds[0]);
+    space->jscl = (double) nj / (jbounds[1] - jbounds[0]);
+    space->imin = ibounds[0];
+    space->jmin = jbounds[0];
+    space->ni = ni;
+    space->nj = nj;
 }

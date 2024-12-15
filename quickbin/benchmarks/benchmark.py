@@ -31,17 +31,17 @@ def benchmark(
     maybeprint = print if verbose is True else lambda *_, **__: None
     ops = opspec2ops(ops)
     check_ops(ops)
-    xarr = RNG.random(size) * 100
-    yarr = RNG.random(size) * 100
+    iarr = RNG.random(size) * 100
+    jarr = RNG.random(size) * 100
     if ops != Ops.count:
         varr = RNG.poisson(100, size)
         if spatial_correlation != 0:
-            varr += np.clip(abs(spatial_correlation), 0, 1) * xarr
-            varr += np.clip(abs(spatial_correlation), 0, 1) * yarr
+            varr += np.clip(abs(spatial_correlation), 0, 1) * iarr
+            varr += np.clip(abs(spatial_correlation), 0, 1) * jarr
     else:
         varr = None
     rec, qtimes, qmems, stimes, smems = {}, [], [], [], []
-    args = (xarr, yarr, varr, ops, n_bins)
+    args = (iarr, jarr, varr, ops, n_bins)
     memwatch = Memwatcher(PROC.pid, fake=checkmem is False)
     if "quickbin" in which:
         maybeprint('q: ', end='')
@@ -72,7 +72,7 @@ def benchmark(
             with memwatch:
                 start = time.time()
                 for opname in ops.name.split("|"):
-                    binned_statistic_2d(xarr, yarr, varr, opname, n_bins)
+                    binned_statistic_2d(iarr, jarr, varr, opname, n_bins)
                 stimes.append(time.time() - start)
             smems.append(memwatch.last)
             gc.collect()

@@ -33,10 +33,10 @@ def test_leak_detect():
 
 def test_bin2d_refalarm_leak():
     """straightforward check for dangling references created in the C layer."""
-    xarr = np.zeros(1000, dtype='f8')
-    yarr = np.zeros(1000, dtype='f8')
+    iarr = np.zeros(1000, dtype='f8')
+    jarr = np.zeros(1000, dtype='f8')
     varr = np.zeros(1000, dtype='f8')
-    in_arrs = (xarr, yarr, varr)
+    in_arrs = (iarr, jarr, varr)
     countarr = np.zeros(100, dtype='f8')
     sumarr = np.zeros(100, dtype='f8')
     meanarr = np.zeros(100, dtype='f8')

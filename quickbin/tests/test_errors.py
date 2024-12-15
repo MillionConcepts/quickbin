@@ -10,10 +10,10 @@ from quickbin._quickbin_core import binned_count, binned_sum
 
 # NOTE: this check happens in the C layer
 def test_bad_bounds():
-    xarr = np.arange(0, 10)
-    yarr = np.arange(0, 10)
+    iarr = np.arange(0, 10)
+    jarr = np.arange(0, 10)
     try:
-        bin2d(xarr, yarr, None, Ops.count, 5, ((1, 2), (1, 2)))
+        bin2d(iarr, jarr, None, Ops.count, 5, ((1, 2), (1, 2)))
         raise ValueError("Those bounds should have been rejected")
     except ValueError as ve:
         assert str(ve).startswith("binned_count: specified bounds")
@@ -53,31 +53,31 @@ def _check_call_fails(
 
 # NOTE: these checks happen in the C layer
 def test_bad_arrays():
-    xarr = np.arange(100, dtype=np.float64)
-    yarr = np.arange(100, dtype=np.float64)
+    iarr = np.arange(100, dtype=np.float64)
+    jarr = np.arange(100, dtype=np.float64)
     varr = np.ones(100, dtype=np.float64)
     _check_call_fails(
         binned_minmax_handler,
-        ((xarr, yarr, varr[:2]), (np.nan,) * 4, (5, 5), Ops.min),
+        ((iarr, jarr, varr[:2]), (np.nan,) * 4, (5, 5), Ops.min),
         "Mismatched array lengths should fail",
         TypeError
     )
     _check_call_fails(
         binned_std_handler,
         (
-            (xarr.astype('u8'), yarr, varr),
+            (iarr.astype('u8'), jarr, varr),
             (np.nan,) * 4,
             (5, 5),
             Ops.std | Ops.mean
         ),
-        "unsigned int xarr should fail",
+        "unsigned int iarr should fail",
         TypeError
     )
     _check_call_fails(
         binned_unary_handler,
         (
             binned_sum,
-            (xarr, yarr, varr.astype('f2')),
+            (iarr, jarr, varr.astype('f2')),
             (np.nan,) * 4,
             (5, 5),
             np.float64
@@ -89,7 +89,7 @@ def test_bad_arrays():
         binned_unary_handler,
         (
             binned_count,
-            (xarr, yarr, varr),
+            (iarr, jarr, varr),
             (np.nan,) * 4,
             (5, 5),
             np.float64
