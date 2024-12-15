@@ -34,7 +34,7 @@ def benchmark(
     iarr = RNG.random(size) * 100
     jarr = RNG.random(size) * 100
     if ops != Ops.count:
-        varr = RNG.poisson(100, size)
+        varr = RNG.poisson(100, size).astype('f8')
         if spatial_correlation != 0:
             varr += np.clip(abs(spatial_correlation), 0, 1) * iarr
             varr += np.clip(abs(spatial_correlation), 0, 1) * jarr
@@ -44,29 +44,31 @@ def benchmark(
     args = (iarr, jarr, varr, ops, n_bins)
     memwatch = Memwatcher(PROC.pid, fake=checkmem is False)
     if "quickbin" in which:
-        maybeprint('q: ', end='')
+        maybeprint('q:')
         for n in range(n_iter):
             maybeprint(f'{n + 1}/{n_iter}...', end='')
             with memwatch:
                 start = time.time()
                 bin2d(*args)
                 qtimes.append(time.time() - start)
-            qmems.append(memwatch.last)
-            gc.collect()
+            if checkmem:
+                qmems.append(memwatch.last)
+                gc.collect()
             maybeprint(f'({round(qtimes[-1], 1)}s)', end=' ')
         rec['qtime'] = float(np.mean(qtimes))
         rec['qtime_ptp'] = float(np.ptp(qtimes))
         if checkmem is True:
             rec['qmem'] = float(np.mean(qmems))
             rec['qmem_ptp'] = float(np.ptp(qmems))
-        maybeprint(f"    qtime: {round(rec['qtime'], 3)}s")
+        maybeprint(f"\n\nqtime: {round(rec['qtime'], 3)}s")
         if checkmem is True:
             maybeprint(
-                f"    qmem: {round(rec['qmem'] / 10 ** 6, 2)} MB\n"
+                f"qmem: {round(rec['qmem'] / 10 ** 6, 2)} MB\n"
             )
+        else:
+            maybeprint()
     if "scipy" in which:
-        stimes, smems = [], []
-        maybeprint('s: ', end='')
+        maybeprint('s:')
         for n in range(n_iter):
             maybeprint(f'{n + 1}/{n_iter}...', end='')
             with memwatch:
@@ -74,19 +76,22 @@ def benchmark(
                 for opname in ops.name.split("|"):
                     binned_statistic_2d(iarr, jarr, varr, opname, n_bins)
                 stimes.append(time.time() - start)
-            smems.append(memwatch.last)
-            gc.collect()
+            if checkmem is True:
+                smems.append(memwatch.last)
+                gc.collect()
             maybeprint(f'({round(stimes[-1], 1)}s)', end=' ')
         rec['stime'] = float(np.mean(stimes))
         rec['stime_ptp'] = float(np.ptp(stimes))
         if checkmem is True:
             rec['smem'] = float(np.mean(smems))
             rec['smem_ptp'] = float(np.ptp(smems))
-        maybeprint(f"    stime: {round(rec['stime'], 3)}s")
+        maybeprint(f"\n\nstime: {round(rec['stime'], 3)}s")
         if checkmem is True:
             maybeprint(
-                f"    smem: {round(rec['smem'] / 10 ** 6, 2)} MB\n"
+                f"smem: {round(rec['smem'] / 10 ** 6, 2)} MB\n"
             )
+        else:
+            maybeprint()
     return rec
 
 
