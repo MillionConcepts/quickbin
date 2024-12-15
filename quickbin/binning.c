@@ -95,6 +95,9 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
         return -1;
     }
     PyArrayObject *array = (PyArrayObject *)PyArray_FROM_O(args[n]);
+    // PyArray_FROM_O creates a strong reference to the object. We do not
+    // actually want to create a strong reference to the object here.
+    Py_DECREF(args[n]);
     if (!array) {
         // see arg_as_double for why we're discarding the original error
         PyErr_Clear();
@@ -314,7 +317,6 @@ binned_sum(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
                             &iter, &space, &nx, &ny, &sumarg)) {
         return NULL;
     }
-
     double *sum = PYARRAY_AS_DOUBLES(sumarg);
     double val;
     FOR_NDITER (&iter, &space, indices, &val) {
