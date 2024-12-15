@@ -23,7 +23,7 @@ refleak(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
 static PyMethodDef
     QuickbinTestMethods[] = {
     {
-        "_refleak",
+        "refleak",
         (PyCFunction) refleak,
         METH_FASTCALL,
         "This function exists to leak a reference. Do not call it."
@@ -34,7 +34,7 @@ static PyMethodDef
 static struct
     PyModuleDef quickbin_test_utils = {
     PyModuleDef_HEAD_INIT,
-    "quickbin_test_utils",   /* name of module */
+    "_quickbin_test_utils",   /* name of module */
 
     "Test utilities for `quickbin` that require interaction with the Python "
     "C-API.\n\n"
@@ -46,6 +46,6 @@ static struct
     QuickbinTestMethods
 };
 
-PyMODINIT_FUNC PyInit_quickbin_test_utils(void) {
+PyMODINIT_FUNC PyInit__quickbin_test_utils(void) {
     return PyModule_Create(&quickbin_test_utils);
 }

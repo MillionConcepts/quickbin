@@ -3,7 +3,7 @@ import numpy as np
 from quickbin import Ops
 from quickbin._quickbin_core import binned_std
 from quickbin.tests.refalarm import RefAlarm
-from quickbin.tests.quickbin_test_utils import _refleak
+from quickbin.tests._quickbin_test_utils import refleak
 
 
 def test_refalarm():
@@ -27,7 +27,7 @@ def test_leak_detect():
     thing = [1, 2, 3, 4]
     alarm = RefAlarm()
     with alarm.context():
-        _refleak(thing)
+        refleak(thing)
     assert alarm.refcaches['default'][0][0]['mismatches']['thing'] == 1
 
 

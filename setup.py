@@ -12,8 +12,8 @@ quickbin_core = Extension(
 )
 
 quickbin_test_utils = Extension(
-    "quickbin.tests.quickbin_test_utils",
-    sources = ["quickbin/tests/quickbin_test_utils.c"]
+    "quickbin.tests._quickbin_test_utils",
+    sources = ["quickbin/tests/_quickbin_test_utils.c"]
 )
 
 setup(
