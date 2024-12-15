@@ -19,7 +19,7 @@ with peak memory pressure of ~5 GB.
 import matplotlib.pyplot as plt  # note: not a quickbin dependency
 import numpy as np
 
-from quickbin import bin2d()
+from quickbin import bin2d
 
 # synthetic data representing measured emission intensity.
 # 10000000 samples, averaging over a 500 x 500 grid. 
