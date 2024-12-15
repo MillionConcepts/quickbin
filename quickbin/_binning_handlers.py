@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import Callable, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quickbin.definitions import Binfunc, Ops
 from quickbin.quickbin_core import (
@@ -26,13 +27,13 @@ from quickbin.quickbin_core import (
 def binned_unary(
     binfunc: Binfunc,
     arrs: Union[
-        tuple[np.ndarray, np.ndarray],
-        tuple[np.ndarray, np.ndarray, np.ndarray]
+        tuple[NDArray[np.float64], NDArray[np.float64]],
+        tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
     ],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     dtype: np.dtype
-) -> np.ndarray:
+) -> NDArray[np.float64] | NDArray[np.int64]:
     """
     Handler for C binning functions that only ever populate one array:
     count, sum, median.
@@ -44,11 +45,11 @@ def binned_unary(
 
 
 def binned_countvals(
-    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> dict[str, np.ndarray]:
+) -> dict[str, NDArray[np.float64] | NDArray[np.int64]]:
     """Handler for C binned_countvals()."""
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
@@ -62,7 +63,9 @@ def binned_countvals(
         (Ops.count, Ops.sum, Ops.mean),
         (countarr, sumarr, meanarr)
     ):
-        if ops & op:
+        if op == Ops.count:
+            output[op.name] = arr.reshape(n_bins).astype("int64")
+        elif ops & op:
             output[op.name] = arr.reshape(n_bins)
     if len(output) == 1:
         return tuple(output.values())[0].reshape(n_bins)
@@ -71,11 +74,11 @@ def binned_countvals(
 
 # TODO, maybe: Perhaps a bit redundant with binned_countvals().
 def binned_std(
-    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> np.ndarray | dict[str, np.ndarray]:
+) -> NDArray[np.float64] | dict[str, NDArray[np.float64] | NDArray[np.int64]]:
     """
     Handler for C binned_std().
 
@@ -96,20 +99,22 @@ def binned_std(
         return stdarr.reshape(n_bins)
     output = {}
     for op, arr in zip(
-            (Ops.count, Ops.sum, Ops.mean, Ops.std),
-            (countarr, sumarr, meanarr, stdarr)
+        (Ops.count, Ops.sum, Ops.mean, Ops.std),
+        (countarr, sumarr, meanarr, stdarr)
     ):
-        if ops & op:
+        if op == Ops.count:
+            output[op.name] = arr.reshape(n_bins).astype("int64")
+        elif ops & op:
             output[op.name] = arr.reshape(n_bins)
     return output
 
 
 def binned_minmax(
-    arrs: tuple[np.ndarray, np.ndarray, np.ndarray],
+    arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> dict[str, np.ndarray]:
+) -> dict[str, NDArray[np.float64]]:
     """Handler for C binned_minmax()."""
     minarr, maxarr = None, None
     if ops & Ops.min:

@@ -17,12 +17,12 @@ class Ops(IntFlag):
     min = auto()
     max = auto()
 
+
 OPS = MappingProxyType({ op.name: op for op in Ops })
 """Mapping expansion of `Ops`."""
 
 OpName = Literal[tuple(OPS.keys())]
 """Names of valid binning operations."""
-
 
 BINERR = "n_bins must be either an integer or a sequence of two integers."
 

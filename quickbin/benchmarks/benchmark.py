@@ -3,12 +3,12 @@ from itertools import product
 import time
 from typing import Collection, Literal
 
-import psutil
 import numpy as np
+import psutil
 from scipy.stats import binned_statistic_2d
 
-from quickbin.benchmarks.memlogger import Memwatcher
 from quickbin import bin2d
+from quickbin.benchmarks.memlogger import Memwatcher
 from quickbin.definitions import check_ops, opspec2ops, Ops
 
 RNG = np.random.default_rng()
@@ -100,8 +100,6 @@ DEFAULT_BINCOUNTS.flags.writeable = False
 DEFAULT_SIZES = np.hstack([
    10 ** np.arange(3, 9),
    10 ** np.arange(3, 9) * 2,
-   # 10 ** np.arange(2, 9) * 3,
-   # 10 ** np.arange(3, 8) * 7,
 ])
 DEFAULT_SIZES.sort()
 DEFAULT_SIZES.flags.writeable = False
