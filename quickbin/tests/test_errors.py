@@ -2,8 +2,10 @@
 import numpy as np
 
 from quickbin import bin2d, Ops
-from quickbin._binning_handlers import binned_minmax, binned_std, binned_unary
-from quickbin.quickbin_core import _binned_count, _binned_sum
+from quickbin._binning_handlers import (
+    binned_minmax_handler, binned_std_handler, binned_unary_handler
+)
+from quickbin._quickbin_core import binned_count, binned_sum
 
 
 # NOTE: this check happens in the C layer
@@ -55,13 +57,13 @@ def test_bad_arrays():
     yarr = np.arange(100, dtype=np.float64)
     varr = np.ones(100, dtype=np.float64)
     _check_call_fails(
-        binned_minmax,
+        binned_minmax_handler,
         ((xarr, yarr, varr[:2]), (np.nan,) * 4, (5, 5), Ops.min),
         "Mismatched array lengths should fail",
         TypeError
     )
     _check_call_fails(
-        binned_std,
+        binned_std_handler,
         (
             (xarr.astype('u8'), yarr, varr),
             (np.nan,) * 4,
@@ -72,9 +74,9 @@ def test_bad_arrays():
         TypeError
     )
     _check_call_fails(
-        binned_unary,
+        binned_unary_handler,
         (
-            _binned_sum,
+            binned_sum,
             (xarr, yarr, varr.astype('f2')),
             (np.nan,) * 4,
             (5, 5),
@@ -84,9 +86,9 @@ def test_bad_arrays():
         TypeError
     )
     _check_call_fails(
-        binned_unary,
+        binned_unary_handler,
         (
-            _binned_count,
+            binned_count,
             (xarr, yarr, varr),
             (np.nan,) * 4,
             (5, 5),

@@ -4,37 +4,37 @@
 static PyMethodDef
 QuickbinMethods[] = {
     {
-        "_binned_count",
+        "binned_count",
         (PyCFunction) binned_count,
         METH_FASTCALL,
         "Binned count function."
     },
     {
-        "_binned_sum",
+        "binned_sum",
         (PyCFunction) binned_sum,
         METH_FASTCALL,
         "Binned sum function."
     },
     {
-        "_binned_countvals",
+        "binned_countvals",
         (PyCFunction) binned_countvals,
         METH_FASTCALL,
         "Binned count / sum / mean function."
     },
     {
-        "_binned_minmax",
+        "binned_minmax",
         (PyCFunction) binned_minmax,
         METH_FASTCALL,
         "Binned min + max function."
     },
     {
-        "_binned_std",
+        "binned_std",
         (PyCFunction) binned_std,
         METH_FASTCALL,
         "Binned standard deviation function."
     },
     {
-        "_binned_median",
+        "binned_median",
         (PyCFunction) binned_median,
         METH_FASTCALL,
         "Binned median function."
@@ -45,7 +45,7 @@ QuickbinMethods[] = {
 static struct
 PyModuleDef quickbin_core_mod = {
     PyModuleDef_HEAD_INIT,
-    "quickbin_core",   /* name of module */
+    "_quickbin_core",   /* name of module */
 
     "This module contains pointy-end implementations of binning functions "
     "exposed at high level by `quickbin.base.bin2d()`.\n\n"
@@ -61,7 +61,9 @@ PyModuleDef quickbin_core_mod = {
     QuickbinMethods
 };
 
-PyMODINIT_FUNC PyInit_quickbin_core(void) {
+// NOTE: the name of this function _must_ be "PyInit_" followed immediately
+//  by the Python-visible name of the module, hence the double underscore.
+PyMODINIT_FUNC PyInit__quickbin_core(void) {
     import_array();
     return PyModule_Create(&quickbin_core_mod);
 }

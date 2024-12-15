@@ -14,17 +14,17 @@ import numpy as np
 from numpy.typing import NDArray
 
 from quickbin.definitions import Binfunc, Ops
-from quickbin.quickbin_core import (
-    _binned_count,
-    _binned_countvals,
-    _binned_sum,
-    _binned_median,
-    _binned_minmax,
-    _binned_std,
+from quickbin._quickbin_core import (
+    binned_count,
+    binned_countvals,
+    binned_sum,
+    binned_median,
+    binned_minmax,
+    binned_std,
 )
 
 
-def binned_unary(
+def binned_unary_handler(
     binfunc: Binfunc,
     arrs: Union[
         tuple[NDArray[np.float64], NDArray[np.float64]],
@@ -38,13 +38,13 @@ def binned_unary(
     Handler for C binning functions that only ever populate one array:
     count, sum, median.
     """
-    constructor = np.empty if binfunc == _binned_median else np.zeros
+    constructor = np.empty if binfunc == binned_median else np.zeros
     result = constructor(n_bins[0] * n_bins[1], dtype=dtype)
     binfunc(*arrs, result, *ranges, *n_bins)
     return result.reshape(n_bins)
 
 
-def binned_countvals(
+def binned_countvals_handler(
     arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
@@ -57,13 +57,13 @@ def binned_countvals(
         meanarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
-    _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
+    binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
     output = {}
     for op, arr in zip(
         (Ops.count, Ops.sum, Ops.mean),
         (countarr, sumarr, meanarr)
     ):
-        if op == Ops.count:
+        if ops & op & op.count:
             output[op.name] = arr.reshape(n_bins).astype("int64")
         elif ops & op:
             output[op.name] = arr.reshape(n_bins)
@@ -73,7 +73,7 @@ def binned_countvals(
 
 
 # TODO, maybe: Perhaps a bit redundant with binned_countvals().
-def binned_std(
+def binned_std_handler(
     arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
@@ -94,7 +94,7 @@ def binned_std(
         meanarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
-    _binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
+    binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
     if ops == Ops.std:
         return stdarr.reshape(n_bins)
     output = {}
@@ -102,14 +102,14 @@ def binned_std(
         (Ops.count, Ops.sum, Ops.mean, Ops.std),
         (countarr, sumarr, meanarr, stdarr)
     ):
-        if op == Ops.count:
+        if ops & op & op.count:
             output[op.name] = arr.reshape(n_bins).astype("int64")
         elif ops & op:
             output[op.name] = arr.reshape(n_bins)
     return output
 
 
-def binned_minmax(
+def binned_minmax_handler(
     arrs: tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
@@ -121,7 +121,7 @@ def binned_minmax(
         minarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.max:
         maxarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
-    _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
+    binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
     if ops == Ops.min | Ops.max:
         return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
     return next(
@@ -131,12 +131,14 @@ def binned_minmax(
 
 OPWORD_BINFUNC_MAP = MappingProxyType(
     {
-        Ops.count: partial(binned_unary, _binned_count, dtype=np.int64),
-        Ops.sum: partial(binned_unary, _binned_sum, dtype=np.float64),
-        Ops.min: partial(binned_minmax, ops=Ops.min),
-        Ops.max: partial(binned_minmax, ops=Ops.max),
-        Ops.median: partial(binned_unary, _binned_median, dtype=np.float64),
-        Ops.min | Ops.max: partial(binned_minmax, ops=Ops.min | Ops.max)
+        Ops.count: partial(binned_unary_handler, binned_count, dtype=np.int64),
+        Ops.sum: partial(binned_unary_handler, binned_sum, dtype=np.float64),
+        Ops.min: partial(binned_minmax_handler, ops=Ops.min),
+        Ops.max: partial(binned_minmax_handler, ops=Ops.max),
+        Ops.median: partial(
+            binned_unary_handler, binned_median, dtype=np.float64
+        ),
+        Ops.min | Ops.max: partial(binned_minmax_handler, ops=Ops.min | Ops.max)
     }
 )
 """
@@ -154,5 +156,5 @@ def ops2binfunc(ops: Ops) -> Callable:
     if ops in OPWORD_BINFUNC_MAP.keys():
         return OPWORD_BINFUNC_MAP[ops]
     if ops & Ops.std:
-        return partial(binned_std, ops=ops)
-    return partial(binned_countvals, ops=ops)
+        return partial(binned_std_handler, ops=ops)
+    return partial(binned_countvals_handler, ops=ops)

@@ -3,11 +3,11 @@ from setuptools import Extension, setup
 import numpy as np
 
 quickbin_core = Extension(
-    "quickbin.quickbin_core",
+    "quickbin._quickbin_core",
     sources=[
         "quickbin/binning.c",
         "quickbin/iterators.c",
-        "quickbin/quickbin_core.c",
+        "quickbin/_quickbin_core.c",
     ]
 )
 

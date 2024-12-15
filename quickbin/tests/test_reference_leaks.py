@@ -1,7 +1,7 @@
 import numpy as np
 
 from quickbin import Ops
-from quickbin.quickbin_core import _binned_std
+from quickbin._quickbin_core import binned_std
 from quickbin.tests.refalarm import RefAlarm
 from quickbin.tests.quickbin_test_utils import _refleak
 
@@ -45,5 +45,5 @@ def test_bin2d_refalarm_leak():
     ranges = (float('nan'),) * 4
     alarm = RefAlarm(verbosity="quiet")
     with alarm.context():
-        _binned_std(*in_arrs, *out_arrs, *ranges, 10, 10)
+        binned_std(*in_arrs, *out_arrs, *ranges, 10, 10)
     assert len(alarm.refcaches['default'][0][0]['mismatches']) == 0
