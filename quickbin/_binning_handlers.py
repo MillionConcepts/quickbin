@@ -37,7 +37,8 @@ def binned_unary(
     Handler for C binning functions that only ever populate one array:
     count, sum, median.
     """
-    result = np.zeros(n_bins[0] * n_bins[1], dtype=dtype)
+    constructor = np.empty if binfunc == _binned_median else np.zeros
+    result = constructor(n_bins[0] * n_bins[1], dtype=dtype)
     binfunc(*arrs, result, *ranges, *n_bins)
     return result.reshape(n_bins)
 
@@ -52,7 +53,7 @@ def binned_countvals(
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.mean:
-        meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+        meanarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
     _binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
@@ -85,9 +86,9 @@ def binned_std(
     """
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
-    stdarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    stdarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.mean:
-        meanarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+        meanarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
     _binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
@@ -112,9 +113,9 @@ def binned_minmax(
     """Handler for C binned_minmax()."""
     minarr, maxarr = None, None
     if ops & Ops.min:
-        minarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+        minarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.max:
-        maxarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+        maxarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     _binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
     if ops == Ops.min | Ops.max:
         return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
