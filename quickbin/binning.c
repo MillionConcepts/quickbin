@@ -250,7 +250,7 @@ unpack_binfunc_args(
         || arg_as_double(binfunc, args, n_inputs + n_outputs + 2, &ymin)
         || arg_as_double(binfunc, args, n_inputs + n_outputs + 3, &ymax)
         || arg_as_long  (binfunc, args, n_inputs + n_outputs + 4, nx)
-        || arg_as_long  (binfunc, args, n_inputs + n_outputs + 4, ny)) {
+        || arg_as_long  (binfunc, args, n_inputs + n_outputs + 5, ny)) {
         return -1;
     }
     // output arrays are processed last because we need to know nx and
