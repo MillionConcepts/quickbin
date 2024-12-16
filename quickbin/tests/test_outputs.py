@@ -10,7 +10,7 @@ from operator import and_
 import time
 
 import numpy as np
-import psutil
+#import psutil
 import pytest
 
 from quickbin import bin2d, Ops
