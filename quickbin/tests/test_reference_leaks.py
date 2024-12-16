@@ -1,6 +1,5 @@
 import numpy as np
 
-from quickbin import Ops
 from quickbin._quickbin_core import binned_std
 from quickbin.tests.refalarm import RefAlarm
 from quickbin.tests._quickbin_test_utils import refleak

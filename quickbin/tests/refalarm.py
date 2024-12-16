@@ -4,11 +4,10 @@ It carries the license of `hostess`. See github.com/MillionConcepts/hostess.
 """
 from __future__ import annotations
 
-import sys
-import warnings
 from collections import defaultdict
 from functools import partial
 from inspect import currentframe, stack
+import sys
 from types import FrameType
 from typing import (
     Any,
@@ -18,6 +17,7 @@ from typing import (
     Sequence,
     Union,
 )
+import warnings
 
 ScopeName = Literal["locals", "globals", "builtins"]
 """
@@ -146,6 +146,60 @@ def refcounts(
 class RefAlarmWarning(UserWarning):
     """warning issued by `RefAlarms` with "warn" `verbosity`"""
 
+
+class _RefAlarmContext:
+    """
+    context manager for reference counting. should be initialized only by
+    RefAlarm.context().
+    """
+
+    def __init__(
+        self,
+        refalarm: RefAlarm,
+        name: str,
+        getstack: bool = False,
+        ignore_dunder: bool = True,
+    ):
+        self.refalarm, self.name = refalarm, name
+        self.getstack = getstack
+        self.refcache, self.ignore_dunder = None, ignore_dunder
+
+    def __enter__(self):
+        # drop refs from this frame
+        self.refcache = refcounts(self.getstack, 2)
+
+    def __exit__(self, *_):
+        results = []
+        # avoid, paranoiacally, calling this inside an expression,
+        # and also drop refs from this frame
+        counts = refcounts(self.getstack, 2)
+        # if the size of the stack changed, something weird happened and
+        # we cannot produce accurate results
+        if len(self.refcache) != len(counts):
+            warnings.warn("stack changed during counting, bailing out")
+            return
+        for old, new in zip(self.refcache, counts):
+            oldname, oldcounts = old["name"], old["counts"]
+            newname, newcounts = new["name"], new["counts"]
+            # if the code name of a frame changed, something weird happened
+            # and we cannot produce accurate results
+            if oldname != newname:
+                warnings.warn("stack changed during counting, bailing out")
+                return
+            mismatches = {}
+            for k in set(oldcounts.keys()).union(newcounts.keys()):
+                if self.ignore_dunder is True and k.startswith("__"):
+                    continue
+                if k not in oldcounts.keys():
+                    mismatches[k] = "new"
+                elif k not in newcounts.keys():
+                    mismatches[k] = "missing"
+                elif (refdiff := newcounts[k] - oldcounts[k]) != 0:
+                    mismatches[k] = refdiff
+            results.append({"name": newname, "mismatches": mismatches})
+        self.refalarm.receive_context_report(results, self.name)
+
+
 class RefAlarm:
     """Simple reference / dereference alarm."""
 
@@ -214,56 +268,3 @@ class RefAlarm:
                     printer(f"{pre}{title}: {k} is missing")
                 else:
                     printer(f"{pre}{title}: {k} refcount changed by {v}")
-
-
-class _RefAlarmContext:
-    """
-    context manager for reference counting. should be initialized only by
-    RefAlarm.context().
-    """
-
-    def __init__(
-            self,
-            refalarm: RefAlarm,
-            name: str,
-            getstack: bool = False,
-            ignore_dunder: bool = True,
-    ):
-        self.refalarm, self.name = refalarm, name
-        self.getstack = getstack
-        self.refcache, self.ignore_dunder = None, ignore_dunder
-
-    def __enter__(self):
-        # drop refs from this frame
-        self.refcache = refcounts(self.getstack, 2)
-
-    def __exit__(self, *_):
-        results = []
-        # avoid, paranoiacally, calling this inside an expression,
-        # and also drop refs from this frame
-        counts = refcounts(self.getstack, 2)
-        # if the size of the stack changed, something weird happened and
-        # we cannot produce accurate results
-        if len(self.refcache) != len(counts):
-            warnings.warn("stack changed during counting, bailing out")
-            return
-        for old, new in zip(self.refcache, counts):
-            oldname, oldcounts = old["name"], old["counts"]
-            newname, newcounts = new["name"], new["counts"]
-            # if the code name of a frame changed, something weird happened
-            # and we cannot produce accurate results
-            if oldname != newname:
-                warnings.warn("stack changed during counting, bailing out")
-                return
-            mismatches = {}
-            for k in set(oldcounts.keys()).union(newcounts.keys()):
-                if self.ignore_dunder is True and k.startswith("__"):
-                    continue
-                if k not in oldcounts.keys():
-                    mismatches[k] = "new"
-                elif k not in newcounts.keys():
-                    mismatches[k] = "missing"
-                elif (refdiff := newcounts[k] - oldcounts[k]) != 0:
-                    mismatches[k] = refdiff
-            results.append({"name": newname, "mismatches": mismatches})
-        self.refalarm.receive_context_report(results, self.name)
