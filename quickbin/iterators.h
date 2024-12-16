@@ -63,9 +63,6 @@ void init_histspace(
 );
 bool init_iterface(Iterface*, PyArrayObject*[2], int);
 
-bool for_nditer_big_step(long[static 2], Iterface *, const Histspace *,
-                         double *val);
-
 static inline bool
 for_nditer_step(
     long indices[static 2],
@@ -73,26 +70,60 @@ for_nditer_step(
     const Histspace *space,
     double *val
 ) {
-    if (iter->size == 0) {
-        if (!for_nditer_big_step(indices, iter, space, val))
+    while (iter->size == 0) {
+        // A little kludge:
+        // if indices[] == { -1, -1 , -1}, then we are before the very first
+        // iteration and we should *not* call iternext.
+        // NOTE: it is possible for *iter->sizep to be zero, hence the
+        // while loop.
+        if (indices[0] == -1 && indices[1] == -1) {
+            indices[1] = 0;
+        } else if (!iter->iternext(iter->iter)) {
+            NpyIter_Deallocate(iter->iter);
             return false;
+        }
+        iter->size = *iter->sizep;
     }
     hist_index(iter, space, indices);
-    if (val)
-        *val = *(double *) iter->data[2];
+    *val = *(double *) iter->data[2];
     iter->size -= 1;
     stride(iter);
     return true;
 }
 
-#define FOR_NDITER(ITER, SPACE, IXS, VAL)               \
-    for (long IXS[2] = {-1, -1};                        \
-         for_nditer_step(IXS, ITER, SPACE, VAL);        \
-         )
+#define FOR_NDITER(ITER, SPACE, IXS, VAL)   \
+    for (long IXS[2] = {-1, -1};       \
+    for_nditer_step(IXS, ITER, SPACE, VAL); \
+)
 
-#define FOR_NDITER_COUNT(ITER, SPACE, IXS)              \
-    for (long IXS[2] = {-1, -1};                        \
-         for_nditer_step(IXS, ITER, SPACE, NULL);       \
-         )
+// TODO: these are tedious special-case versions of the preceding
+//  function/macro pair intended for counting. there is probably
+//  a cleaner way to do this.
+
+static inline bool
+for_nditer_step_count(
+        long indices[static 2],
+        Iterface *iter,
+        const Histspace *space
+) {
+    while (iter->size == 0) {
+        if (indices[0] == -1 && indices[1] == -1) {
+            indices[1] = 0;
+        } else if (!iter->iternext(iter->iter)) {
+            NpyIter_Deallocate(iter->iter);
+            return false;
+        }
+        iter->size = *iter->sizep;
+    }
+    hist_index(iter, space, indices);
+    iter->size -= 1;
+    stride(iter);
+    return true;
+}
+
+#define FOR_NDITER_COUNT(ITER, SPACE, IXS)   \
+    for (long IXS[2] = {-1, -1};       \
+    for_nditer_step_count(IXS, ITER, SPACE); \
+)
 
 #endif // ITERATORS_H
