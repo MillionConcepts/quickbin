@@ -46,3 +46,27 @@ init_histspace(
     space->ni = ni;
     space->nj = nj;
 }
+
+bool
+for_nditer_big_step(
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space,
+    double *val
+) {
+    while (iter->size == 0) {
+        // A little kludge:
+        // if indices[] == { -1, -1 , -1}, then we are before the very first
+        // iteration and we should *not* call iternext.
+        // NOTE: it is possible for *iter->sizep to be zero, hence the
+        // while loop.
+        if (indices[0] == -1 && indices[1] == -1) {
+            indices[1] = 0;
+        } else if (!iter->iternext(iter->iter)) {
+            NpyIter_Deallocate(iter->iter);
+            return false;
+        }
+        iter->size = *iter->sizep;
+    }
+    return true;
+}
