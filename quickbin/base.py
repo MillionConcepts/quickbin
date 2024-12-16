@@ -3,16 +3,17 @@ This module contains `bin2d()` and subroutines. `bin2d()` is the on-label
 entry point for most of `quickbin`'s functionality.
 """
 from numbers import Integral, Real
-from typing import Collection, Optional, Sequence, Union
+from typing import Any, Collection, Optional, Sequence, Union
 
 import numpy as np
+from numpy.typing import NDArray
 
 from quickbin._binning_handlers import ops2binfunc
-from quickbin.definitions import OpName, Ops, OPS, BINERR, opspec2ops
+from quickbin.definitions import BINERR, OpName, Ops, opspec2ops
 
 
 def _set_up_bins(
-    n_bins: Union[Sequence[Integral], Integral]
+    n_bins: Union[tuple[Integral, Integral], Integral]
 ) -> tuple[int, int]:
     """
     Helper function for bin2d(). Formats bin-shape specification correctly.
@@ -45,45 +46,47 @@ def _set_up_bounds(
         the C code to assign them based on i/j array min/max values.
     """
     if bbounds is None:
-        ranges = (float('nan'),) * 4
+        return (float('nan'),) * 4
     elif len(bbounds) != 2:
         raise ValueError(
             "bbounds must be a sequence like [[imin, imax], [jmin, jmax]]"
         )
-    else:
-        ranges = tuple(map(float, (*bbounds[0], *bbounds[1])))
-    return ranges
+    return (
+        float(bbounds[0][0]),
+        float(bbounds[0][1]),
+        float(bbounds[1][0]),
+        float(bbounds[1][1])
+    )
 
 
 def _set_up_ijval(
     op: Ops,
-    i_arr: np.ndarray,
-    j_arr: np.ndarray,
-    val_arr: Optional[np.ndarray]
+    i_arr: NDArray[np.integer | np.floating],
+    j_arr: NDArray[np.integer | np.floating],
+    val_arr: Optional[NDArray[np.integer | np.floating]]
 ) -> (
-    tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray]
+    tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
+    | tuple[NDArray[np.float64], NDArray[np.float64]]
 ):
     """
     Helper function for bin2d(). Checks and regularizes array types and
     presence. Pointless to call this directly.
     """
-    arrs = [i_arr, j_arr, val_arr]
-    for i, arr in enumerate(arrs):
-        if arr is None and i != 2:
-            raise TypeError("x and y arrays may not be none")
-        elif arr is None and op != OPS["count"]:
-            raise TypeError("val array may only be none for 'count'")
-        elif arr is not None and arr.dtype != np.float64:
-            arrs[i] = arr.astype(np.float64)
-    return tuple(arrs[:2]) if op == OPS["count"] else tuple(arrs)
+    if not (isinstance(i_arr, np.ndarray) and isinstance(j_arr, np.ndarray)):
+        raise TypeError("i and j coordinate arguments must be ndarrays")
+    if op == Ops.count:
+        return i_arr.astype('f8'), j_arr.astype('f8')
+    if not isinstance(val_arr, np.ndarray):
+        raise TypeError("value argument may only be None for 'count' op")
+    return i_arr.astype('f8'), j_arr.astype('f8'), val_arr.astype('f8')
 
 
 def bin2d(
-    i_arr: np.ndarray,
-    j_arr: np.ndarray,
-    val_arr: Optional[np.ndarray],
+    i_arr: NDArray[np.integer | np.floating],
+    j_arr: NDArray[np.integer | np.floating],
+    val_arr: Optional[NDArray[np.integer | np.floating]],
     ops: Union[OpName, Collection[OpName], Integral, Ops],
-    n_bins: Union[Integral, Sequence[Integral]],
+    n_bins: Union[Integral, tuple[Integral, Integral]],
     bbounds: Optional[tuple[tuple[Real, Real], tuple[Real, Real]]] = None
 ) -> dict[str, np.ndarray] | np.ndarray:
     """

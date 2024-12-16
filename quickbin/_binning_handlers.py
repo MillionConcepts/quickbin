@@ -8,12 +8,12 @@ Caution:
 """
 from functools import partial
 from types import MappingProxyType
-from typing import Callable, Union
+from typing import Any, Callable, Union, Optional
 
 import numpy as np
 from numpy.typing import NDArray
 
-from quickbin.definitions import Binfunc, Ops
+from quickbin.definitions import I8, F8, Ops
 from quickbin._quickbin_core import (
     binned_count,
     binned_countvals,
@@ -25,15 +25,15 @@ from quickbin._quickbin_core import (
 
 
 def binned_unary_handler(
-    binfunc: Binfunc,
+    binfunc: Callable[..., None],
     arrs: Union[
         tuple[NDArray[np.float64], NDArray[np.float64]],
         tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]
     ],
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
-    dtype: np.dtype
-) -> NDArray[np.float64] | NDArray[np.int64]:
+    dtype: np.dtype[np.int64 | np.float64]
+) -> NDArray[np.float64 | np.int64]:
     """
     Handler for C binning functions that only ever populate one array:
     count, sum, median.
@@ -49,7 +49,7 @@ def binned_countvals_handler(
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> dict[str, NDArray[np.float64] | NDArray[np.int64]]:
+) ->  NDArray[np.float64] | dict[str, NDArray[np.float64 | np.int64]]:
     """Handler for C binned_countvals()."""
     countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
     sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
@@ -58,17 +58,22 @@ def binned_countvals_handler(
     else:
         meanarr = None
     binned_countvals(*arrs, countarr, sumarr, meanarr, *ranges, *n_bins)
-    output = {}
+    if ops == Ops.mean:
+        if meanarr is None:
+            raise TypeError("Something went wrong in array construction.")
+        arrout: NDArray[np.float64] = meanarr.reshape(n_bins)
+        return arrout
+    output: dict[str, NDArray[np.int64] | NDArray[np.float64]] = {}
     for op, arr in zip(
-        (Ops.count, Ops.sum, Ops.mean),
-        (countarr, sumarr, meanarr)
+        (Ops.count, Ops.sum, Ops.mean), (countarr, sumarr, meanarr)
     ):
-        if ops & op & op.count:
-            output[op.name] = arr.reshape(n_bins).astype("int64")
-        elif ops & op:
-            output[op.name] = arr.reshape(n_bins)
-    if len(output) == 1:
-        return tuple(output.values())[0].reshape(n_bins)
+        if ~(ops & op):
+            continue
+        if arr is None:
+            raise TypeError("Something went wrong in array construction.")
+        output[op.name] = arr.reshape(n_bins)
+        if op == Ops.count:
+            output["count"] = output["count"].astype(np.int64)
     return output
 
 
@@ -78,7 +83,7 @@ def binned_std_handler(
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> NDArray[np.float64] | dict[str, NDArray[np.float64] | NDArray[np.int64]]:
+) -> NDArray[np.float64] | dict[str, NDArray[np.float64 | np.int64]]:
     """
     Handler for C binned_std().
 
@@ -87,26 +92,44 @@ def binned_std_handler(
         variety of input sanitization tasks. Not doing do may cause undesired
         results.
     """
-    countarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
-    sumarr = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
-    stdarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
+    countarr: NDArray[np.float64] = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    sumarr: NDArray[np.float64] = np.zeros(n_bins[0] * n_bins[1], dtype='f8')
+    stdarr: NDArray[np.float64] = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.mean:
         meanarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     else:
         meanarr = None
     binned_std(*arrs, countarr, sumarr, stdarr, meanarr, *ranges, *n_bins)
     if ops == Ops.std:
-        return stdarr.reshape(n_bins)
-    output = {}
-    for op, arr in zip(
-        (Ops.count, Ops.sum, Ops.mean, Ops.std),
-        (countarr, sumarr, meanarr, stdarr)
-    ):
-        if ops & op & op.count:
-            output[op.name] = arr.reshape(n_bins).astype("int64")
-        elif ops & op:
-            output[op.name] = arr.reshape(n_bins)
+        outarr: NDArray[np.float64] = stdarr.reshape(n_bins)
+        return outarr
+    output: dict[str, NDArray[np.float64 | np.int64]] = {}
+    if ops & Ops.count:
+        countout: NDArray[np.int64] = countarr.reshape(n_bins).astype("int64")
+        output["count"] = countout
+    for op, arr in zip((Ops.sum, Ops.mean, Ops.std), (sumarr, meanarr, stdarr)):
+        if ~(ops & op):
+            continue
+        if arr is None:
+            raise TypeError("Something went wrong in array construction.")
+        arrout: NDArray[np.float64] = arr.reshape(n_bins)
+        output[op.name] = arrout
     return output
+
+from typing import TypeAlias
+#
+HandlerFunc: TypeAlias = Callable[
+    [
+        tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],
+        tuple[float, float, float, float],
+        tuple[int, int],
+        Ops,
+        Optional[np.dtype[np.int64 | np.float64]]
+    ],
+    dict[str, NDArray[np.float64 | np.int64]] | NDArray[np.float64 | np.int64]
+]
+
+
 
 
 def binned_minmax_handler(
@@ -114,30 +137,45 @@ def binned_minmax_handler(
     ranges: tuple[float, float, float, float],
     n_bins: tuple[int, int],
     ops: Ops
-) -> dict[str, NDArray[np.float64]]:
+) -> dict[str, NDArray[np.float64]] | NDArray[np.float64]:
     """Handler for C binned_minmax()."""
-    minarr, maiarr = None, None
+    minarr, maxarr = None, None
     if ops & Ops.min:
         minarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
     if ops & Ops.max:
-        maiarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
-    binned_minmax(*arrs, minarr, maiarr, *ranges, *n_bins)
+        maxarr = np.empty(n_bins[0] * n_bins[1], dtype='f8')
+    binned_minmax(*arrs, minarr, maxarr, *ranges, *n_bins)
     if ops == Ops.min | Ops.max:
-        return {"min": minarr.reshape(n_bins), "max": maiarr.reshape(n_bins)}
-    return next(
-        filter(lambda arr: arr is not None, (minarr, maiarr))
-    ).reshape(n_bins)
+        if maxarr is None or minarr is None:
+            raise TypeError("something went wrong in array construction.")
+        return {"min": minarr.reshape(n_bins), "max": maxarr.reshape(n_bins)}
+    if ops == Ops.min:
+        if minarr is None:
+            raise TypeError("something went wrong in array construction.")
+        return minarr.reshape(n_bins)
+    if maxarr is None:
+        raise TypeError("something went wrong in array construction.")
+    return maxarr.reshape(n_bins)
+
+from typing import Mapping, TypeAlias
+
+HandlerPartial: TypeAlias = (
+    partial[
+        NDArray[np.float64]
+        | dict[str, NDArray[np.int64 | np.float64]]
+    ]
+    | partial[NDArray[np.float64] |  dict[str, NDArray[np.float64]]]
+    | partial[NDArray[np.int64 | np.float64]]
+)
 
 
-OPWORD_BINFUNC_MAP = MappingProxyType(
+OPWORD_BINFUNC_MAP: Mapping[Ops, HandlerPartial] = MappingProxyType(
     {
-        Ops.count: partial(binned_unary_handler, binned_count, dtype=np.int64),
-        Ops.sum: partial(binned_unary_handler, binned_sum, dtype=np.float64),
+        Ops.count: partial(binned_unary_handler, binned_count, dtype=I8),
+        Ops.sum: partial(binned_unary_handler, binned_sum, dtype=F8),
         Ops.min: partial(binned_minmax_handler, ops=Ops.min),
         Ops.max: partial(binned_minmax_handler, ops=Ops.max),
-        Ops.median: partial(
-            binned_unary_handler, binned_median, dtype=np.float64
-        ),
+        Ops.median: partial(binned_unary_handler, binned_median, dtype=F8),
         Ops.min | Ops.max: partial(binned_minmax_handler, ops=Ops.min | Ops.max)
     }
 )
@@ -147,7 +185,7 @@ the many possible permutations of count, sum, mean, and std (see `ops2binfunc`).
 """
 
 
-def ops2binfunc(ops: Ops) -> Callable:
+def ops2binfunc(ops: Ops) -> HandlerPartial:
     """
     Given a valid opword return a corresponding binning handler function,
     partially evaluated with appropriate arguments for your convenience.
