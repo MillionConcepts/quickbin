@@ -334,7 +334,7 @@ binned_sum(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     double *sum = PYARRAY_AS_DOUBLES(sumarg);
     double val;
     FOR_NDITER (&iter, &space, indices, &val) {
-        if (indices[0] >= 0) sum[indices[1] + nj * indices[0]] += val;
+        if (indices[0] >= 0) sum[indices[1] + indices[0] * nj] += val;
     }
     Py_RETURN_NONE;
 }

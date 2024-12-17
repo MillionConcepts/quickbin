@@ -25,6 +25,9 @@ typedef struct
 Histspace {
     double iscl;
     double jscl;
+    double rowjump;
+    double imin_ix;
+    double jmin_ix;
     double imin;
     double jmin;
     long ni;
@@ -32,35 +35,46 @@ Histspace {
 } Histspace;
 
 static inline void
+init_histspace(
+    Histspace *space,
+    const double ibounds[static 2],
+    const double jbounds[static 2],
+    const long ni,
+    const long nj
+) {
+    space->iscl = (double) ni / (ibounds[1] - ibounds[0]);
+    space->jscl = (double) nj / (jbounds[1] - jbounds[0]);
+    space->jscl -= 1e-15;
+    space->iscl -= 1e-15;
+    space->rowjump = (double) nj * space->iscl;
+
+//    space->imin_ix = (space->iscl * space->imin);
+//    space->jmin_ix = (space->jscl * space->jmin);
+    space->imin = ibounds[0];
+    space->jmin = jbounds[0];
+    space->ni = ni;
+    space->nj = nj;
+}
+
+// rowjump == iscl * nj
+// and is scaling ii
+// we were previously comparing ii to ni
+// so we want to compare ii to ni * nj
+
+static inline void
 hist_index(const Iterface *iter, const Histspace *space, long indices[static 2]) {
     double ti = *(double *) iter->data[0];
     double tj = *(double *) iter->data[1];
-    // TODO, maybe: make the bounds check modal instead of simply enforcing
-    //  bounds range up top
-
-    // --- DEAD BOUNDS CHECK CODE ---
-    //    int inbounds = (
-    //        tx >= (*space).xmin && tx < (*space).xmax
-    //        && ty >= (*space).ymin && ty < (*space).ymax
-    //    );
-    //    long ix = -1;
-    //    long iy = -1;
-    // -- END DEAD BOUNDS CHECK CODE --
-
     long ii, ij;
-//    if (inbounds) {  // DEAD
     ii = (ti - space->imin) * space->iscl;
     ij = (tj - space->jmin) * space->jscl;
-    if (ii == space->ni) ii -= 1;
-    if (ij == space->nj) ij -= 1;
-//    }  // DEAD
     indices[0] = ii;
     indices[1] = ij;
 }
 
-void init_histspace(
-    Histspace*, const double[static 2], const double[static 2], long, long
-);
+//void init_histspace(
+//    Histspace*, const double[static 2], const double[static 2], long, long
+//);
 bool init_iterface(Iterface*, PyArrayObject*[2], int);
 
 static inline bool
@@ -102,9 +116,9 @@ for_nditer_step(
 
 static inline bool
 for_nditer_step_count(
-        long indices[static 2],
-        Iterface *iter,
-        const Histspace *space
+    long indices[static 2],
+    Iterface *iter,
+    const Histspace *space
 ) {
     while (iter->size == 0) {
         if (indices[0] == -1 && indices[1] == -1) {

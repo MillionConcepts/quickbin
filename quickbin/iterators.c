@@ -29,18 +29,4 @@ init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
     return true;
 }
 
-void
-init_histspace(
-    Histspace *space,
-    const double ibounds[static 2],
-    const double jbounds[static 2],
-    const long ni,
-    const long nj
-) {
-    space->iscl = (double) ni / (ibounds[1] - ibounds[0]);
-    space->jscl = (double) nj / (jbounds[1] - jbounds[0]);
-    space->imin = ibounds[0];
-    space->jmin = jbounds[0];
-    space->ni = ni;
-    space->nj = nj;
-}
+
