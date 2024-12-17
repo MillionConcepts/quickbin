@@ -56,7 +56,7 @@ ObjectCleanupInfo {
 
 static inline int
 prep_cleanup(
-    ObjectCleanupInfo *cleanup[],
+    ObjectCleanupInfo **cleanup,
     PyObject *target,
     const bool delete_array_data,
     const int ix
@@ -71,7 +71,7 @@ static inline void
 clean_up_pyobjects(ObjectCleanupInfo *cleanup[], const int nclean) {
     for (int i = 0; i < nclean; i++) {
         if (cleanup[i]->delete_array_data == true) {
-            free(PyArray_DATA((PyArrayObject *) cleanup[i]));
+            free(PyArray_DATA((PyArrayObject *) cleanup[i]->object));
             Py_SET_REFCNT(cleanup[i]->object, 0);
         } else if (Py_REFCNT(cleanup[i]->object) != 0) {
             Py_DECREF(cleanup[i]->object);
@@ -83,19 +83,24 @@ static inline void
 do_object_cleanup(
     void *tofree[],
     const int nfree,
-    ObjectCleanupInfo *toclean[],
-    const int nclean
+    ObjectCleanupInfo **toclean,
+    const int nclean,
+    const int cleansize
 ) {
     free_pointer_array(tofree, nfree);
     clean_up_pyobjects(toclean, nclean);
+    for (int i = 0; i < cleansize; i++) free(toclean[i]);
+    free(toclean);
 }
 
-#define ABORT_IF_NULL(MAYBE_NULL, OBJNAME, TOFREE, NFREE, PYOBJCLEAN, NPYOBJ) \
+#define ABORT_IF_NULL(                                                        \
+    MAYBE_NULL, OBJNAME, TOFREE, NFREE, PYOBJCLEAN, NPYOBJ, CLEANSZ           \
+)                                                                             \
 do {                                                                          \
     if (MAYBE_NULL == NULL) {                                                 \
         PyErr_SetString(PyExc_RuntimeError,                                   \
                         "OBJNAME initialization failed");                     \
-        do_object_cleanup(TOFREE, NFREE, PYOBJCLEAN, NPYOBJ);                 \
+        do_object_cleanup(TOFREE, NFREE, PYOBJCLEAN, NPYOBJ, CLEANSZ);                 \
         return NULL;                                                          \
     }                                                                         \
 } while(0)

@@ -58,7 +58,7 @@ def _simpletest(n_tiles, op, tilesize):
 
 # TODO: replace / supplement this stuff with hypothesize
 
-@pytest.mark.parametrize("op", (Ops.mean,))
+@pytest.mark.parametrize("op", Ops)
 def test_op_simple(op):
     results = [
         _simpletest(n_tiles, op, tilesize)

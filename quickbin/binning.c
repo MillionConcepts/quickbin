@@ -449,28 +449,40 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
                             &iter, &space, &ni, &nj, &medarg)) {
         return NULL;
     }
+    ObjectCleanupInfo **toclean = malloc(sizeof(ObjectCleanupInfo*) * 20);
+    if (toclean == NULL) {
+        PyErr_SetString(PyErr_NoMemory(), "could not init cleanup routine");
+        return NULL;
+    }
+    for (int i = 0; i < 20; i++) {
+        toclean[i] = malloc(sizeof(ObjectCleanupInfo));
+        if (toclean[i] == NULL) {
+            for (int j = 0; j < i; j++) free(toclean[i]);
+            PyErr_SetString(PyErr_NoMemory(), "could not init cleanup routine");
+            return NULL;
+        }
+    }
+    void *tofree[3] = {NULL, NULL, NULL};
+    int nclean = 0, nfree = 3, cs = 20;
     // if we get here these assignments have been validated
     PyArrayObject *iarg = (PyArrayObject *) args[0];
     PyArrayObject *varg = (PyArrayObject *) args[2];
-    ObjectCleanupInfo *toclean[20];
-    void *tofree[3] = {NULL, NULL, NULL};
-    int nclean = 0, nfree = 3;
     PyObject *numpy = PyImport_ImportModule("numpy");
-    ABORT_IF_NULL(numpy, "numpy", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, numpy, nclean, false);
+    ABORT_IF_NULL(numpy, "numpy", tofree, nfree, toclean, nclean, cs);
+    nclean = prep_cleanup(toclean, numpy, false, nclean);
     PyObject *unique = GETATTR(numpy, "unique");
-    ABORT_IF_NULL(unique, "np.unique", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, unique, nclean, false);
+    ABORT_IF_NULL(unique, "np.unique", tofree, nfree, toclean, nclean, cs);
+    nclean = prep_cleanup(toclean, unique, false, nclean);
     long arrsize = PyArray_SIZE(iarg);
     // idig and jdig are the bin indices of each value in our input i and j
     // arrays respectively. this is a cheaty version of a digitize-type
     // operation that works only because we always have regular bins.
     PyArrayObject *idig_arr = init_ndarray1d(arrsize, NPY_LONG, 0);
-    ABORT_IF_NULL(idig_arr, "idig array", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, (PyObject *) idig_arr, nclean, true);
+    ABORT_IF_NULL(idig_arr, "idig array", tofree, nfree, toclean, nclean, cs);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_arr, true, nclean);
     PyArrayObject *jdig_arr = init_ndarray1d(arrsize, NPY_LONG, 0);
-    ABORT_IF_NULL(jdig_arr, "jdig array", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, (PyObject *) jdig_arr, nclean, true);
+    ABORT_IF_NULL(jdig_arr, "jdig array", tofree, nfree, toclean, nclean, cs);
+    nclean = prep_cleanup(toclean, (PyObject *) jdig_arr, true, nclean);
     long *idig = (long *) PyArray_DATA(idig_arr);
     long *jdig = (long *) PyArray_DATA(jdig_arr);
     for (long ix = 0; ix < arrsize; ix++) {
@@ -484,12 +496,14 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     }
     NpyIter_Deallocate(iter.iter);
     PyArrayObject *idig_sortarr = (PyArrayObject *) NP_ARGSORT(idig_arr);
-    ABORT_IF_NULL(idig_sortarr, "idig sort", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, (PyObject *) idig_sortarr, nclean, true);
+    ABORT_IF_NULL(idig_sortarr, "idig sort", tofree, nfree, toclean, nclean,
+                  cs);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_sortarr, true, nclean);
     long *idig_sort = (long *) PyArray_DATA(idig_sortarr);
     PyArrayObject *idig_uniqarr = (PyArrayObject *) PYCALL_1(unique, idig_arr);
-    ABORT_IF_NULL(idig_uniqarr, "idig uniq", tofree, nfree, toclean, nclean);
-    nclean = prep_cleanup(toclean, (PyObject *) idig_uniqarr, nclean, true);
+    ABORT_IF_NULL(idig_uniqarr, "idig uniq", tofree, nfree, toclean,
+                  nclean, cs);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_uniqarr, true, nclean);
     long ni_unique = PyArray_SIZE(idig_uniqarr);
     long *idig_uniq = (long *) PyArray_DATA(idig_uniqarr);
     double *vals = (double *) PyArray_DATA(varg);
@@ -501,9 +515,8 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
         //  to count the bins, allocate ibin_indices of the actually-required
         //  size, and then loop over it again?
         long *ibin_indices = calloc(sizeof *ibin_indices, arrsize);
-        ABORT_IF_NULL(
-            ibin_indices, ibin_indices (xix), tofree, nfree, toclean, nclean
-        );
+        ABORT_IF_NULL(ibin_indices, ibin_indices (xix), tofree, nfree,
+                      toclean, nclean, cs);
         tofree[0] = ibin_indices;
         long ibin_elcount = 0;
         for(;;) {
@@ -518,14 +531,12 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
             continue;
         }
         long *match_buckets = malloc(sizeof *match_buckets * nj * ibin_elcount);
-        ABORT_IF_NULL(
-            match_buckets, match buckets (xix), tofree, nfree, toclean, nclean
-        );
+        ABORT_IF_NULL(match_buckets, match buckets (xix), tofree, nfree,
+                      toclean, nclean, cs);
         tofree[1] = match_buckets;
         long *match_count = calloc(sizeof *match_count, nj);
-        ABORT_IF_NULL(
-            match_count, match array(xix), tofree, nfree, toclean, nclean
-        );
+        ABORT_IF_NULL(match_count, match array(xix), tofree, nfree, toclean,
+                      nclean, cs);
         tofree[2] = match_count;
         for (long j = 0; j < ibin_elcount; j++) {
             long jbin = jdig[ibin_indices[j]];
@@ -538,9 +549,8 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
             long binsize = match_count[jbin];
             if (binsize == 0) continue;
             double *binvals = malloc(sizeof *binvals * binsize);
-            ABORT_IF_NULL(
-                binvals, bins (jbin, xix), tofree, nfree, toclean, nclean
-            );
+            ABORT_IF_NULL(binvals, bins (jbin, xix), tofree, nfree, toclean,
+                          nclean, cs);
             for (long ix_ix = 0; ix_ix < binsize; ix_ix++) {
                 binvals[ix_ix] = vals[match_buckets[jbin * ibin_elcount + ix_ix]];
             }
@@ -555,6 +565,6 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
         }
         free_pointer_array(tofree, 3);
     }
-    do_object_cleanup(tofree, nfree, toclean, nclean);
+    do_object_cleanup(tofree, nfree, toclean, nclean, cs);
     Py_RETURN_NONE;
 }
