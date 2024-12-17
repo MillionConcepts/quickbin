@@ -6,7 +6,6 @@ from types import MappingProxyType
 from typing import Callable, Collection, Literal
 
 import numpy as np
-from numpy.typing import NDArray
 
 F8 = np.dtype('f8')
 I8 = np.dtype('i8')

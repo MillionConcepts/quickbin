@@ -67,7 +67,7 @@ def binned_countvals_handler(
     for op, arr in zip(
         (Ops.count, Ops.sum, Ops.mean), (countarr, sumarr, meanarr)
     ):
-        if ~(ops & op):
+        if ops & op == 0:
             continue
         if arr is None:
             raise TypeError("Something went wrong in array construction.")
@@ -108,7 +108,7 @@ def binned_std_handler(
         countout: NDArray[np.int64] = countarr.reshape(n_bins).astype("int64")
         output["count"] = countout
     for op, arr in zip((Ops.sum, Ops.mean, Ops.std), (sumarr, meanarr, stdarr)):
-        if ~(ops & op):
+        if ops & op == 0:
             continue
         if arr is None:
             raise TypeError("Something went wrong in array construction.")
@@ -128,8 +128,6 @@ HandlerFunc: TypeAlias = Callable[
     ],
     dict[str, NDArray[np.float64 | np.int64]] | NDArray[np.float64 | np.int64]
 ]
-
-
 
 
 def binned_minmax_handler(

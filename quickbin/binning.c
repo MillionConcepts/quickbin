@@ -1,5 +1,4 @@
 #include "binning.h"
-#include "iterators.h"
 
 #define PYARRAY_AS_DOUBLES(PYARG) ((double *) PyArray_DATA(PYARG))
 #define PYARRAY_AS_LONGS(PYARG) ((long *) PyArray_DATA(PYARG))
@@ -97,7 +96,6 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
     PyArrayObject *array = (PyArrayObject *)PyArray_FROM_O(args[n]);
     // PyArray_FROM_O creates a strong reference to the object. We do not
     // actually want to create a strong reference to the object here.
-    Py_DECREF(args[n]);
     if (!array) {
         // see arg_as_double for why we're discarding the original error
         PyErr_Clear();
@@ -106,6 +104,7 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
                      binfunc, n, (PyObject *)Py_TYPE(args[n]));
         return -1;
     }
+    Py_DECREF(args[n]);
     if (PyArray_NDIM(array) != 1) {
         PyErr_Format(PyExc_TypeError,
                      "%s: arg %zd must be a 1-dimensional array",
@@ -140,17 +139,21 @@ arg_as_array(const char *binfunc, PyObject *const *args, Py_ssize_t n,
     return 0;
 }
 
-static void
+static int
 double_array_bounds(PyArrayObject *arr, double bounds[static 2]) {
     double maxval, minval;
     PyObject *maxscalar = PyArray_Max(arr, 0, NULL);
-    PyArray_ScalarAsCtype(maxscalar, &maxval);
-    Py_DECREF(maxscalar);
     PyObject *minscalar = PyArray_Min(arr, 0, NULL);
+    if (maxscalar == NULL || minscalar == NULL) {
+        return -1;
+    }
+    PyArray_ScalarAsCtype(maxscalar, &maxval);
     PyArray_ScalarAsCtype(minscalar, &minval);
+    Py_DECREF(maxscalar);
     Py_DECREF(minscalar);
     bounds[0] = minval;
     bounds[1] = maxval;
+    return 0;
 }
 
 static int
@@ -162,8 +165,16 @@ check_bounds (
     double jbounds[static 2]
 ) {
     double iminmax[2], jminmax[2];
-    double_array_bounds(iarg, iminmax);
-    double_array_bounds(jarg, jminmax);
+    if (
+        double_array_bounds(iarg, iminmax) == -1
+        || double_array_bounds(jarg, jminmax) == -1
+   ) {
+        PyErr_Format(
+            PyExc_RuntimeError, "%s: could not find input array min/max.",
+            binfunc
+        );
+        return -1;
+    }
     // the Python handlers set these values to NaN when no bounds were
     // specified by the user. In this case we simply set the bounds to the
     // min/max of the coordinate arrays plus a little slop to keep the largest
@@ -273,7 +284,10 @@ unpack_binfunc_args(
         }
     }
     if (!have_an_output) {
-        PYRAISE(ValueError, "at least one output array should be present");
+        PyErr_SetString(
+            PyExc_TypeError, "at least one output array should be present"
+        );
+        return -1;
     }
     double ibounds[2] = {imin, imax};
     double jbounds[2] = {jmin, jmax};
@@ -281,7 +295,7 @@ unpack_binfunc_args(
         return -1;
     PyArrayObject *arrs[3] = {iarg, jarg, varg };
     if (!init_iterface(iter, arrs, n_inputs)) {
-        PYRAISE(PyExc_RuntimeError, "Binning setup failed.");
+        return -1;
     }
     init_histspace(space, ibounds, jbounds, *ni, *nj);
     return 0;
@@ -423,6 +437,7 @@ binned_minmax(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     Py_RETURN_NONE;
 }
 
+
 PyObject*
 binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     // TODO: there may be unnecessary copies happening here
@@ -435,17 +450,27 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
         return NULL;
     }
     // if we get here these assignments have been validated
-    PyArrayObject *iarg = (PyArrayObject *)args[0];
-    PyArrayObject *varg = (PyArrayObject *)args[2];
-
+    PyArrayObject *iarg = (PyArrayObject *) args[0];
+    PyArrayObject *varg = (PyArrayObject *) args[2];
+    ObjectCleanupInfo *toclean[20];
+    void *tofree[3] = {NULL, NULL, NULL};
+    int nclean = 0, nfree = 3;
     PyObject *numpy = PyImport_ImportModule("numpy");
+    ABORT_IF_NULL(numpy, "numpy", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, numpy, nclean, false);
     PyObject *unique = GETATTR(numpy, "unique");
+    ABORT_IF_NULL(unique, "np.unique", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, unique, nclean, false);
     long arrsize = PyArray_SIZE(iarg);
     // idig and jdig are the bin indices of each value in our input i and j
     // arrays respectively. this is a cheaty version of a digitize-type
     // operation that works only because we always have regular bins.
     PyArrayObject *idig_arr = init_ndarray1d(arrsize, NPY_LONG, 0);
+    ABORT_IF_NULL(idig_arr, "idig array", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_arr, nclean, true);
     PyArrayObject *jdig_arr = init_ndarray1d(arrsize, NPY_LONG, 0);
+    ABORT_IF_NULL(jdig_arr, "jdig array", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, (PyObject *) jdig_arr, nclean, true);
     long *idig = (long *) PyArray_DATA(idig_arr);
     long *jdig = (long *) PyArray_DATA(jdig_arr);
     for (long ix = 0; ix < arrsize; ix++) {
@@ -459,16 +484,14 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     }
     NpyIter_Deallocate(iter.iter);
     PyArrayObject *idig_sortarr = (PyArrayObject *) NP_ARGSORT(idig_arr);
-    // TODO: ensure that these remain NULL when cast to PyArrayObject in
-    //  Pythonland failure cases
-    if (idig_sortarr == NULL) return NULL;
+    ABORT_IF_NULL(idig_sortarr, "idig sort", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_sortarr, nclean, true);
     long *idig_sort = (long *) PyArray_DATA(idig_sortarr);
     PyArrayObject *idig_uniqarr = (PyArrayObject *) PYCALL_1(unique, idig_arr);
-    // TODO: laboriously decrement various references in these failure cases
-    if (idig_uniqarr == NULL) return NULL;
+    ABORT_IF_NULL(idig_uniqarr, "idig uniq", tofree, nfree, toclean, nclean);
+    nclean = prep_cleanup(toclean, (PyObject *) idig_uniqarr, nclean, true);
     long ni_unique = PyArray_SIZE(idig_uniqarr);
     long *idig_uniq = (long *) PyArray_DATA(idig_uniqarr);
-    DECREF_ALL(unique, numpy);
     double *vals = (double *) PyArray_DATA(varg);
     long i_sort_ix = 0;
     double* median = PYARRAY_AS_DOUBLES(medarg);
@@ -478,6 +501,10 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
         //  to count the bins, allocate ibin_indices of the actually-required
         //  size, and then loop over it again?
         long *ibin_indices = calloc(sizeof *ibin_indices, arrsize);
+        ABORT_IF_NULL(
+            ibin_indices, ibin_indices (xix), tofree, nfree, toclean, nclean
+        );
+        tofree[0] = ibin_indices;
         long ibin_elcount = 0;
         for(;;) {
             ibin_indices[ibin_elcount] = idig_sort[i_sort_ix];
@@ -487,20 +514,33 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
             if (idig[idig_sort[i_sort_ix]] != ibin) break;
         }
         if (ibin_elcount == 0) {
-            free(ibin_indices);
+            free_pointer_array(tofree, nfree);
             continue;
         }
         long *match_buckets = malloc(sizeof *match_buckets * nj * ibin_elcount);
+        ABORT_IF_NULL(
+            match_buckets, match buckets (xix), tofree, nfree, toclean, nclean
+        );
+        tofree[1] = match_buckets;
         long *match_count = calloc(sizeof *match_count, nj);
+        ABORT_IF_NULL(
+            match_count, match array(xix), tofree, nfree, toclean, nclean
+        );
+        tofree[2] = match_count;
         for (long j = 0; j < ibin_elcount; j++) {
             long jbin = jdig[ibin_indices[j]];
-            match_buckets[jbin * ibin_elcount + match_count[jbin]] = ibin_indices[j];
+            match_buckets[
+                jbin * ibin_elcount + match_count[jbin]
+            ] = ibin_indices[j];
             match_count[jbin] += 1;
         }
         for (long jbin = 0; jbin < nj; jbin++) {
             long binsize = match_count[jbin];
             if (binsize == 0) continue;
             double *binvals = malloc(sizeof *binvals * binsize);
+            ABORT_IF_NULL(
+                binvals, bins (jbin, xix), tofree, nfree, toclean, nclean
+            );
             for (long ix_ix = 0; ix_ix < binsize; ix_ix++) {
                 binvals[ix_ix] = vals[match_buckets[jbin * ibin_elcount + ix_ix]];
             }
@@ -513,8 +553,8 @@ binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
             median[jbin + space.nj * ibin] = bin_median;
             free(binvals);
         }
-        FREE_ALL(match_buckets, match_count, ibin_indices);
+        free_pointer_array(tofree, 3);
     }
-    DESTROY_ALL_NDARRAYS(idig_uniqarr, idig_sortarr, jdig_arr, idig_arr);
+    do_object_cleanup(tofree, nfree, toclean, nclean);
     Py_RETURN_NONE;
 }

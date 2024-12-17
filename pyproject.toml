@@ -13,5 +13,7 @@ build-backend = "setuptools.build_meta"
 tests = ["pytest"]
 benchmark = ["psutil", "scipy"]
 
-[tool.setuptools]
-packages = ["quickbin"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["quickbin*"]
+# packages = ["quickbin"]

@@ -12,39 +12,12 @@
 #include <numpy/arrayobject.h>
 #include <numpy/npy_math.h>
 #include <Python.h>
+#include <stdbool.h>
 
 // core Python CAPI shorthand
 
 #define GETATTR PyObject_GetAttrString
-#define ValueError PyExc_ValueError
 
-// impl note: returns 0 instead of NULL so it can be used in functions
-// that return pointers, functions that return integers, and functions
-// that return booleans
-#define PYRAISE(exc_class, msg) do {        \
-    PyErr_SetString(exc_class, msg);        \
-    return 0;                               \
-} while (0)
-
-static inline void
-free_all(int n, void **ptrs) {
-    for (int i = 0; i < n; i++) free(ptrs[i]);
-}
-
-#define FREE_ALL(...) free_all ( \
-    sizeof((void *[]){__VA_ARGS__}) / sizeof(void *),   \
-    (void *[]){__VA_ARGS__}                             \
-)
-
-static inline void
-decref_all(int n, void **ptrs) {
-    for (int i = 0; i < n; i++) Py_DECREF((PyObject *) ptrs[i]);
-}
-
-#define DECREF_ALL(...) decref_all (                     \
-   sizeof((void *[]){__VA_ARGS__}) / sizeof(void *),     \
-   (void *[]){__VA_ARGS__}                               \
-)
 
 #define PYCALL_1(FUNC, ARG) \
     PyObject_CallFunctionObjArgs(FUNC, (PyObject *) ARG, NULL);
@@ -60,25 +33,72 @@ static inline PyArrayObject*
 init_ndarray1d(const npy_intp size, const npy_intp dtype, const npy_intp fill) {
     PyArrayObject *arr1d = (PyArrayObject *)
     PyArray_SimpleNew(1, (npy_intp []){size}, dtype);
+    if (arr1d == NULL) return NULL;
     PyArray_FILLWBYTE(arr1d, fill);
     return arr1d;
 }
 
+
 static inline void
-destroy_ndarray(PyArrayObject *arr) {
-    free(PyArray_DATA(arr));
-    Py_SET_REFCNT(arr, 0);
+free_pointer_array(void *targets[], const int n) {
+    for (int i = 0; i < n; i++) {
+        if (targets[i] != NULL) free(targets[i]);
+        targets[i] = NULL;
+    }
+}
+
+typedef struct
+ObjectCleanupInfo {
+    bool delete_array_data;
+    PyObject *object;
+} ObjectCleanupInfo;
+
+
+static inline int
+prep_cleanup(
+    ObjectCleanupInfo *cleanup[],
+    PyObject *target,
+    const bool delete_array_data,
+    const int ix
+) {
+    cleanup[ix]->object = target;
+    cleanup[ix]->delete_array_data = delete_array_data;
+    return ix + 1;
+}
+
+
+static inline void
+clean_up_pyobjects(ObjectCleanupInfo *cleanup[], const int nclean) {
+    for (int i = 0; i < nclean; i++) {
+        if (cleanup[i]->delete_array_data == true) {
+            free(PyArray_DATA((PyArrayObject *) cleanup[i]));
+            Py_SET_REFCNT(cleanup[i]->object, 0);
+        } else if (Py_REFCNT(cleanup[i]->object) != 0) {
+            Py_DECREF(cleanup[i]->object);
+        }
+    }
 }
 
 static inline void
-destroy_all_ndarrays(const int n, void **ptrs) {
-    for (int i = 0; i < n; i++) destroy_ndarray((PyArrayObject *) ptrs[i]);
+do_object_cleanup(
+    void *tofree[],
+    const int nfree,
+    ObjectCleanupInfo *toclean[],
+    const int nclean
+) {
+    free_pointer_array(tofree, nfree);
+    clean_up_pyobjects(toclean, nclean);
 }
 
-#define DESTROY_ALL_NDARRAYS(...) destroy_all_ndarrays ( \
-   sizeof((void *[]){__VA_ARGS__}) / sizeof(void *),     \
-   (void *[]){__VA_ARGS__}                               \
-)
+#define ABORT_IF_NULL(MAYBE_NULL, OBJNAME, TOFREE, NFREE, PYOBJCLEAN, NPYOBJ) \
+do {                                                                          \
+    if (MAYBE_NULL == NULL) {                                                 \
+        PyErr_SetString(PyExc_RuntimeError,                                   \
+                        "OBJNAME initialization failed");                     \
+        do_object_cleanup(TOFREE, NFREE, PYOBJCLEAN, NPYOBJ);                 \
+        return NULL;                                                          \
+    }                                                                         \
+} while(0)
 
 
-#endif // PI_HELPERS_H
+#endif // API_HELPERS_H

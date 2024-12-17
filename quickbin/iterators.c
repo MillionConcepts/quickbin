@@ -14,12 +14,10 @@ init_iterface(Iterface *iter, PyArrayObject *arrays[], int n_arrays) {
             NULL, 0
     );
     if (! iter->iter) {
-        PyErr_SetString(PyExc_RuntimeError, "Couldn't construct iterator");
         return false;
     }
     iter->iternext = NpyIter_GetIterNext(iter->iter, NULL);
     if (! iter->iternext) {
-        PyErr_SetString(PyExc_RuntimeError, "Couldn't construct iteration");
         NpyIter_Deallocate(iter->iter);
         return false;
     }

@@ -1,7 +1,7 @@
 #ifndef BINNING_H
 #define BINNING_H
 
-#include "api_helpers.h"
+#include "iterators.h"
 
 PyObject* binned_count(PyObject *, PyObject *const *, Py_ssize_t);
 PyObject* binned_countvals(PyObject *, PyObject *const *, Py_ssize_t);
