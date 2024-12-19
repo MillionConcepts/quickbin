@@ -8,7 +8,7 @@ Caution:
 """
 from functools import partial
 from types import MappingProxyType
-from typing import Any, Callable, Union, Optional
+from typing import Callable, Union, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -117,7 +117,7 @@ def binned_std_handler(
     return output
 
 from typing import TypeAlias
-#
+
 HandlerFunc: TypeAlias = Callable[
     [
         tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]],

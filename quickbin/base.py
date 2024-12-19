@@ -3,7 +3,7 @@ This module contains `bin2d()` and subroutines. `bin2d()` is the on-label
 entry point for most of `quickbin`'s functionality.
 """
 from numbers import Integral, Real
-from typing import Any, Collection, Optional, Sequence, Union
+from typing import Collection, Optional, Sequence, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -74,11 +74,17 @@ def _set_up_ijval(
     """
     if not (isinstance(i_arr, np.ndarray) and isinstance(j_arr, np.ndarray)):
         raise TypeError("i and j coordinate arguments must be ndarrays")
+    if i_arr.dtype != np.float64:
+        i_arr = i_arr.astype(np.float64)
+    if j_arr.dtype != np.float64:
+        j_arr = j_arr.astype(np.float64)
     if op == Ops.count:
-        return i_arr.astype('f8'), j_arr.astype('f8')
+        return i_arr, j_arr
     if not isinstance(val_arr, np.ndarray):
         raise TypeError("value argument may only be None for 'count' op")
-    return i_arr.astype('f8'), j_arr.astype('f8'), val_arr.astype('f8')
+    if val_arr.dtype != np.float64:
+        val_arr = val_arr.astype(np.float64)
+    return i_arr, j_arr, val_arr
 
 
 def bin2d(

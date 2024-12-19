@@ -437,7 +437,6 @@ binned_minmax(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     Py_RETURN_NONE;
 }
 
-
 PyObject*
 binned_median(PyObject *self, PyObject *const *args, Py_ssize_t n_args) {
     // TODO: there may be unnecessary copies happening here
