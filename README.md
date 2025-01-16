@@ -66,4 +66,5 @@ performance against `binned_statistic_2d()`. It additionally depends on
 
 ## licensing
 
-Pre-release code. May crash your computer. Not licensed for distribution.
+`quickbin` is subject to the BSD 3-Clause License, copyright of Million Concepts.
+You may do almost anything you like with the code.

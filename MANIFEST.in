@@ -1,0 +1,11 @@
+# No, it isn't possible to do this in pyproject.toml :-<
+include environment.yml
+include quickbin/api_helpers.h
+include quickbin/binning.c
+include quickbin/binning.h
+include quickbin/iterators.c
+include quickbin/iterators.h
+include quickbin/_quickbin_core.c
+include quickbin/_quickbin_core.pyi
+include quickbin/tests/_quickbin_test_utils.c
+include quickbin/tests/_quickbin_test_utils.pyi

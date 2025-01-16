@@ -1,6 +1,20 @@
 [project]
 name        = "quickbin"
-version     = "0.1.0a0"
+version     = "0.2.0"
+description = "fast generalized histogram function"
+license     = { file = "LICENSE.md" }
+
+authors     = [
+    { name = "Michael St. Clair", email = "mstclair@millionconcepts.com"},
+    { name = "Zack Weinberg",     email = "zack@millionconcepts.com" }
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
 
 requires-python = ">=3.11"
 dependencies = ["numpy"]
@@ -13,7 +27,9 @@ build-backend = "setuptools.build_meta"
 tests = ["pytest"]
 benchmark = ["psutil", "scipy"]
 
+[project.urls]
+Repository = "https://github.com/MillionConcepts/quickbin"
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["quickbin*"]
-# packages = ["quickbin"]

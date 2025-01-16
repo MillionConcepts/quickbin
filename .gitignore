@@ -135,3 +135,4 @@ dmypy.json
 *scratch.py
 *scratch.ipynb
 cmake-build-debug/
+*.data
