@@ -50,8 +50,19 @@ fig.tight_layout(pad=0)
 
 ## installation and dependencies
 
-`quickbin` requires `setuptools` and `numpy`. Install it from source with
-`pip install .` in the source root directory.
+`quickbin` is available on PyPI: install with `pip install quickbin`.
+
+You can also install it from source  with `pip install .` in the source root 
+directory.
+
+`quickbin` will be available on `conda-forge` soon.
+
+`quickbin` requires `setuptools` and `numpy`.
+
+## compatibility
+
+`quickbin` supports Python 3.11-3.13. It is compatible with 64-bit Linux, as 
+well as MacOS on both Intel and Apple Silicon. Windows compatibility is planned. 
 
 ## tests
 
