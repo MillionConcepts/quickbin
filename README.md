@@ -51,7 +51,7 @@ fig.tight_layout(pad=0)
 ## installation and dependencies
 
 `quickbin` requires `setuptools` and `numpy`. Install it from source with
-`python setup.py .` in the source root directory.
+`pip install .` in the source root directory.
 
 ## tests
 
